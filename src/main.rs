@@ -1,3 +1,4 @@
+mod gui;
 mod toml;
 mod veuros;
 
@@ -16,7 +17,12 @@ fn main() {
         process::exit(1)
     });
 
-    let assignments = veuros::run(&config);
+    let use_console = env::args().any(|a| a == "--console");
+    let assignments = if use_console {
+        veuros::run(&config)
+    } else {
+        gui::run(&config)
+    };
 
     let my_name = config.general.my_name.trim();
     let week = Local::now().iso_week().week();

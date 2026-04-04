@@ -2,7 +2,7 @@ use std::io::{self, Write};
 
 use crate::toml::parser::Config;
 
-const TOTAL: u32 = 50;
+pub const TOTAL: u32 = 50;
 
 pub struct Assignment {
     pub name: String,
