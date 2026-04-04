@@ -24,12 +24,24 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwayland-dev libxkbcommon-dev wayland-protocols \
+            libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libgl1-mesa-dev
+
+      - name: Set Wayland cmake flag
+        if: matrix.os == 'ubuntu-latest'
+        run: echo "RAYLIB_CMAKE_FLAGS=-DUSE_WAYLAND=ON" >> $GITHUB_ENV
+
       - run: rustup target add ${{ matrix.target }}
 
       - run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7
         with:
           name: assessment-report-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/${{ matrix.binary }}
@@ -44,6 +56,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Read base version from Cargo.toml
+        id: version
+        run: |
+          BASE=$(grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "tag=${BASE}" >> $GITHUB_OUTPUT
+
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -54,11 +72,10 @@ jobs:
           mv artifacts/assessment-report-x86_64-pc-windows-msvc/assessment-report.exe artifacts/assessment-report-windows-x86_64.exe
           mv artifacts/assessment-report-aarch64-apple-darwin/assessment-report        artifacts/assessment-report-macos-arm64
 
-      - name: Create release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
+          tag_name: v${{ steps.version.outputs.tag }}
+          name: v${{ steps.version.outputs.tag }}
           body: "Commit: ${{ github.sha }}"
           files: |
             artifacts/assessment-report-linux-x86_64
