@@ -11,13 +11,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary: assessment-report
+            binary: peer-assessment-report-generator
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            binary: assessment-report.exe
+            binary: peer-assessment-report-generator.exe
           - os: macos-latest
             target: aarch64-apple-darwin
-            binary: assessment-report
+            binary: peer-assessment-report-generator
 
     runs-on: ${{ matrix.os }}
 
@@ -43,7 +43,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: assessment-report-${{ matrix.target }}
+          name: peer-assessment-report-generator-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/${{ matrix.binary }}
 
   release:
@@ -68,9 +68,14 @@ jobs:
 
       - name: Rename binaries
         run: |
-          mv artifacts/assessment-report-x86_64-unknown-linux-gnu/assessment-report   artifacts/assessment-report-linux-x86_64
-          mv artifacts/assessment-report-x86_64-pc-windows-msvc/assessment-report.exe artifacts/assessment-report-windows-x86_64.exe
-          mv artifacts/assessment-report-aarch64-apple-darwin/assessment-report        artifacts/assessment-report-macos-arm64
+          mv artifacts/peer-assessment-report-generator-x86_64-unknown-linux-gnu/peer-assessment-report-generator   artifacts/peer-assessment-report-generator-linux-x86_64
+          mv artifacts/peer-assessment-report-generator-x86_64-pc-windows-msvc/peer-assessment-report-generator.exe artifacts/peer-assessment-report-generator-windows-x86_64.exe
+          mv artifacts/peer-assessment-report-generator-aarch64-apple-darwin/peer-assessment-report-generator        artifacts/peer-assessment-report-generator-macos-arm64
+
+      - name: Set executable bit
+        run: |
+          chmod +x artifacts/peer-assessment-report-generator-linux-x86_64
+          chmod +x artifacts/peer-assessment-report-generator-macos-arm64
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -78,6 +83,6 @@ jobs:
           name: v${{ steps.version.outputs.tag }}
           body: "Commit: ${{ github.sha }}"
           files: |
-            artifacts/assessment-report-linux-x86_64
-            artifacts/assessment-report-windows-x86_64.exe
-            artifacts/assessment-report-macos-arm64
+            artifacts/peer-assessment-report-generator-linux-x86_64
+            artifacts/peer-assessment-report-generator-windows-x86_64.exe
+            artifacts/peer-assessment-report-generator-macos-arm64

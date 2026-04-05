@@ -13,9 +13,8 @@ students = [
 ]
 "#;
 
-pub fn write(path: &Path) {
+pub fn write(path: &Path) -> std::io::Result<()> {
     fs::write(path, DEFAULT_CONFIG)
-        .unwrap_or_else(|e| eprintln!("Warning: could not write default config: {e}"));
 }
 
 pub fn is_missing(path: &Path) -> bool {

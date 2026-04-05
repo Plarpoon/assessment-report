@@ -13,51 +13,31 @@ fn main() {
         .to_path_buf();
 
     let config_path = binary_dir.join("config.toml");
-
     let use_console = env::args().any(|a| a == "--console");
 
-    if use_console {
+    let (config, assignments) = if use_console {
         let config = toml::parser::load(&config_path).unwrap_or_else(|e| {
             eprintln!("{e}");
             process::exit(1)
         });
         let assignments = veuros::run(&config);
-        write_output(
-            &binary_dir,
-            &config.general.my_name,
-            &config.general.group_name,
-            &config.members.students,
-            &assignments,
-        );
+        (config, assignments)
     } else {
-        let config = toml::parser::load(&config_path).ok();
-        let (config, assignments) = gui::run(config, config_path);
-        write_output(
-            &binary_dir,
-            &config.general.my_name,
-            &config.general.group_name,
-            &config.members.students,
-            &assignments,
-        );
-    }
-}
+        gui::run(toml::parser::load(&config_path).ok(), config_path)
+    };
 
-fn write_output(
-    binary_dir: &std::path::Path,
-    my_name: &str,
-    group_name: &str,
-    students: &[String],
-    assignments: &[veuros::Assignment],
-) {
-    let my_name = my_name.trim();
+    let my_name = config.general.my_name.trim();
     let week = Local::now().iso_week().week();
-    let group = group_name.trim().replace(' ', "_");
+    let group = config.general.group_name.trim().replace(' ', "_");
     let name_slug = my_name.replace(' ', "_");
     let filename = format!("1DV508WEEK{week}{group}By{name_slug}.txt");
 
-    let content = build_content(my_name, students, assignments);
-    fs::write(binary_dir.join(&filename), &content)
-        .unwrap_or_else(|e| eprintln!("Error writing file: {e}"));
+    let content = build_content(my_name, &config.members.students, &assignments);
+
+    if let Err(e) = fs::write(binary_dir.join(&filename), &content) {
+        eprintln!("Error: could not write '{filename}': {e}");
+        process::exit(1);
+    }
 
     println!("Written: {filename}");
 }
@@ -68,15 +48,14 @@ fn build_content(my_name: &str, students: &[String], assignments: &[veuros::Assi
         .map(|student| {
             let s = student.trim();
             if s.eq_ignore_ascii_case(my_name) {
-                "ME, -".to_string()
-            } else {
-                let amount = assignments
-                    .iter()
-                    .find(|a| a.name.eq_ignore_ascii_case(s))
-                    .map(|a| a.amount.to_string())
-                    .unwrap_or_default();
-                format!("{s}, {amount}")
+                return "ME, -".to_string();
             }
+            let amount = assignments
+                .iter()
+                .find(|a| a.name.eq_ignore_ascii_case(s))
+                .map(|a| a.amount.to_string())
+                .unwrap_or_default();
+            format!("{s}, {amount}")
         })
         .collect::<Vec<_>>()
         .join("\n")

@@ -39,6 +39,7 @@ pub fn run(config: Option<Config>, config_path: PathBuf) -> (Config, Vec<Assignm
     font.texture()
         .set_texture_filter(&thread, TextureFilter::TEXTURE_FILTER_BILINEAR);
 
+    // If no valid config exists, open the setup wizard before the main screen.
     let mut config = match config {
         Some(c) => c,
         None => setup::run(&mut rl, &thread, &font, &config_path, None),

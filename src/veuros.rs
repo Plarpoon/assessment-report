@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 
 use crate::toml::parser::Config;
 
@@ -62,24 +62,38 @@ fn ask_amount(name: &str, remaining: u32) -> u32 {
     loop {
         println!("  vEuros remaining: {remaining}");
         print!("  Assign to {name}: ");
-        io::stdout().flush().unwrap();
 
-        match read_line().trim().parse::<u32>() {
-            Ok(n) if n <= remaining => return n,
-            Ok(_) => println!("  Cannot assign more than {remaining} vEuros.\n"),
-            Err(_) => println!("  Please enter a whole number.\n"),
+        if io::stdout().flush().is_err() {
+            std::process::exit(1);
+        }
+
+        match read_line().as_deref() {
+            None => std::process::exit(1),
+            Some(line) => match line.trim().parse::<u32>() {
+                Ok(n) if n <= remaining => return n,
+                Ok(_) => println!("  Cannot assign more than {remaining} vEuros.\n"),
+                Err(_) => println!("  Please enter a whole number.\n"),
+            },
         }
     }
 }
 
 fn confirm(prompt: &str) -> bool {
     print!("{prompt}");
-    io::stdout().flush().unwrap();
-    read_line().trim().eq_ignore_ascii_case("y")
+    if io::stdout().flush().is_err() {
+        return false;
+    }
+    read_line()
+        .as_deref()
+        .map(|l| l.trim().eq_ignore_ascii_case("y"))
+        .unwrap_or(false)
 }
 
-fn read_line() -> String {
-    let mut buf = String::new();
-    io::stdin().read_line(&mut buf).unwrap();
-    buf
+fn read_line() -> Option<String> {
+    let stdin = io::stdin();
+    let mut line = String::new();
+    match stdin.lock().read_line(&mut line) {
+        Ok(0) | Err(_) => None, // EOF or broken pipe: treat as no input
+        Ok(_) => Some(line),
+    }
 }
