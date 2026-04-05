@@ -61,6 +61,12 @@ const DIM: Color = Color {
     b: 120,
     a: 255,
 };
+const BTN_BG: Color = Color {
+    r: 40,
+    g: 40,
+    b: 55,
+    a: 255,
+};
 
 pub enum Outcome {
     Done(Vec<Assignment>),
@@ -91,28 +97,22 @@ impl<'a> State<'a> {
         }
     }
 
-    fn amounts(&self) -> Vec<u32> {
-        self.buffers
+    fn remaining(&self) -> i64 {
+        let total: u32 = self
+            .buffers
             .iter()
             .map(|b| b.parse::<u32>().unwrap_or(0))
-            .collect()
-    }
-
-    fn total(&self) -> u32 {
-        self.amounts().iter().sum()
-    }
-
-    fn remaining(&self) -> i64 {
-        TOTAL as i64 - self.total() as i64
+            .sum();
+        TOTAL as i64 - total as i64
     }
 
     fn assignments(&self) -> Vec<Assignment> {
         self.peers
             .iter()
-            .zip(self.amounts())
-            .map(|(&name, amount)| Assignment {
+            .zip(self.buffers.iter())
+            .map(|(&name, buf)| Assignment {
                 name: name.to_string(),
-                amount,
+                amount: buf.parse().unwrap_or(0),
             })
             .collect()
     }
@@ -135,16 +135,35 @@ pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, font: &Font, config: &C
     let mut state = State::new(peers);
 
     loop {
-        if state.screen == Screen::Assign {
+        if let Some(outcome) = handle_input(rl, &mut state, win_h) {
+            return outcome;
+        }
+
+        if rl.window_should_close() {
+            std::process::exit(0);
+        }
+
+        let mut d = rl.begin_drawing(thread);
+        d.clear_background(BG);
+
+        if state.screen == Screen::Confirm {
+            draw_confirm(&mut d, font, win_h);
+        } else {
+            draw_assign(&mut d, font, &state, win_h);
+        }
+    }
+}
+
+fn handle_input(rl: &mut RaylibHandle, state: &mut State, win_h: i32) -> Option<Outcome> {
+    match state.screen {
+        Screen::Assign => {
             if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
                 let pos = rl.get_mouse_position();
                 if hit(pos, edit_btn_rect(win_h)) {
-                    return Outcome::EditConfig;
+                    return Some(Outcome::EditConfig);
                 }
-                for (i, _) in state.peers.iter().enumerate() {
-                    if hit(pos, field_rect(i)) {
-                        state.active = i;
-                    }
+                if let Some(i) = (0..state.peers.len()).find(|&i| hit(pos, field_rect(i))) {
+                    state.active = i;
                 }
             }
 
@@ -167,94 +186,93 @@ pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, font: &Font, config: &C
             if rl.is_key_pressed(KeyboardKey::KEY_ENTER) && state.remaining() == 0 {
                 state.screen = Screen::Confirm;
             }
-        } else {
+        }
+        Screen::Confirm => {
             if rl.is_key_pressed(KeyboardKey::KEY_Y) {
-                return Outcome::Done(state.assignments());
+                return Some(Outcome::Done(state.assignments()));
             }
             if rl.is_key_pressed(KeyboardKey::KEY_N) {
                 state.screen = Screen::Assign;
             }
         }
+    }
+    None
+}
 
-        if rl.window_should_close() {
-            std::process::exit(0);
-        }
+fn draw_assign(d: &mut RaylibDrawHandle, font: &Font, state: &State, win_h: i32) {
+    txt(d, font, "Assign 50 vEuros", PAD, PAD, FONT_SIZE, FG);
 
-        let mut d = rl.begin_drawing(thread);
-        d.clear_background(BG);
+    let remaining = state.remaining();
+    let rem_color = match remaining.cmp(&0) {
+        std::cmp::Ordering::Less => RED,
+        std::cmp::Ordering::Equal => GREEN,
+        std::cmp::Ordering::Greater => ACCENT,
+    };
+    let rem_text = format!("Remaining: {remaining}");
+    let tw = measure(font, &rem_text, FONT_SIZE);
+    txt(
+        d,
+        font,
+        &rem_text,
+        WIN_W - PAD - tw,
+        PAD,
+        FONT_SIZE,
+        rem_color,
+    );
 
-        if state.screen == Screen::Confirm {
-            draw_confirm(&mut d, font, win_h);
-            continue;
-        }
+    for (i, &name) in state.peers.iter().enumerate() {
+        draw_row(d, font, state, i, name);
+    }
 
-        txt(&mut d, font, "Assign 50 vEuros", PAD, PAD, FONT_SIZE, FG);
+    let hint = match remaining.cmp(&0) {
+        std::cmp::Ordering::Equal => "Press Enter to confirm",
+        std::cmp::Ordering::Less => "Over budget — reduce some values",
+        std::cmp::Ordering::Greater => "Click or Tab to select a field",
+    };
+    let hint_y = PAD * 3 + state.peers.len() as i32 * ROW_H + PAD;
+    txt(d, font, hint, PAD, hint_y, FONT_SIZE - 2.0, DIM);
 
-        let remaining = state.remaining();
-        let rem_color = if remaining < 0 {
-            RED
-        } else if remaining == 0 {
-            GREEN
-        } else {
-            ACCENT
-        };
-        let rem_text = format!("Remaining: {remaining}");
-        let tw = measure(font, &rem_text, FONT_SIZE);
+    draw_edit_btn(d, font, win_h);
+}
+
+fn draw_row(d: &mut RaylibDrawHandle, font: &Font, state: &State, i: usize, name: &str) {
+    let y = PAD * 3 + i as i32 * ROW_H;
+    let is_active = state.active == i;
+    let r = field_rect(i);
+    let val = &state.buffers[i];
+    let tx = r.x as i32 + 8;
+    let ty = r.y as i32 + (BOX_H - FONT_SIZE as i32) / 2;
+
+    txt(
+        d,
+        font,
+        name,
+        PAD,
+        y + (BOX_H - FONT_SIZE as i32) / 2,
+        FONT_SIZE,
+        FG,
+    );
+
+    d.draw_rectangle_rec(r, if is_active { BOX_ACT } else { BOX_BG });
+    d.draw_rectangle_lines_ex(r, 1.5, if is_active { ACCENT } else { DIM });
+
+    let (val_text, val_color) = if val.is_empty() {
+        ("0", DIM)
+    } else {
+        (val.as_str(), FG)
+    };
+    txt(d, font, val_text, tx, ty, FONT_SIZE, val_color);
+
+    if is_active && (d.get_time() * 2.0) as i32 % 2 == 0 {
         txt(
-            &mut d,
+            d,
             font,
-            &rem_text,
-            WIN_W - PAD - tw,
-            PAD,
+            "|",
+            tx + measure(font, val, FONT_SIZE),
+            ty,
             FONT_SIZE,
-            rem_color,
+            ACCENT,
         );
-
-        for (i, &name) in state.peers.iter().enumerate() {
-            let y = PAD * 3 + i as i32 * ROW_H;
-            let is_active = state.active == i;
-
-            txt(
-                &mut d,
-                font,
-                name,
-                PAD,
-                y + (BOX_H - FONT_SIZE as i32) / 2,
-                FONT_SIZE,
-                FG,
-            );
-
-            let r = field_rect(i);
-            d.draw_rectangle_rec(r, if is_active { BOX_ACT } else { BOX_BG });
-            d.draw_rectangle_lines_ex(r, 1.5, if is_active { ACCENT } else { DIM });
-
-            let val = &state.buffers[i];
-            let tx = r.x as i32 + 8;
-            let ty = r.y as i32 + (BOX_H - FONT_SIZE as i32) / 2;
-
-            if val.is_empty() {
-                txt(&mut d, font, "0", tx, ty, FONT_SIZE, DIM);
-            } else {
-                txt(&mut d, font, val, tx, ty, FONT_SIZE, FG);
-            }
-
-            if is_active && (d.get_time() * 2.0) as i32 % 2 == 0 {
-                let cx = tx + measure(font, val, FONT_SIZE);
-                txt(&mut d, font, "|", cx, ty, FONT_SIZE, ACCENT);
-            }
-        }
-
-        let hint_y = PAD * 3 + state.peers.len() as i32 * ROW_H + PAD;
-        let hint = if remaining == 0 {
-            "Press Enter to confirm"
-        } else if remaining < 0 {
-            "Over budget — reduce some values"
-        } else {
-            "Click or Tab to select a field"
-        };
-        txt(&mut d, font, hint, PAD, hint_y, FONT_SIZE - 2.0, DIM);
-
-        draw_edit_btn(&mut d, font, win_h);
     }
 }
 
@@ -300,22 +318,13 @@ fn edit_btn_rect(win_h: i32) -> Rectangle {
 
 fn draw_edit_btn(d: &mut RaylibDrawHandle, font: &Font, win_h: i32) {
     let r = edit_btn_rect(win_h);
-    d.draw_rectangle_rec(
-        r,
-        Color {
-            r: 40,
-            g: 40,
-            b: 55,
-            a: 255,
-        },
-    );
+    let lw = measure(font, "Edit config", FONT_SIZE - 6.0);
+    d.draw_rectangle_rec(r, BTN_BG);
     d.draw_rectangle_lines_ex(r, 1.0, DIM);
-    let label = "Edit config";
-    let lw = measure(font, label, FONT_SIZE - 6.0);
     txt(
         d,
         font,
-        label,
+        "Edit config",
         r.x as i32 + (BTN_W - lw) / 2,
         r.y as i32 + (BTN_H - (FONT_SIZE as i32 - 6)) / 2,
         FONT_SIZE - 6.0,
@@ -326,13 +335,11 @@ fn draw_edit_btn(d: &mut RaylibDrawHandle, font: &Font, win_h: i32) {
 fn draw_confirm(d: &mut RaylibDrawHandle, font: &Font, win_h: i32) {
     let msg = "All 50 vEuros assigned.";
     let sub = "Confirm and write file?  [Y] yes   [N] back";
-    let mw = measure(font, msg, FONT_SIZE + 4.0);
-    let sw = measure(font, sub, FONT_SIZE);
     txt(
         d,
         font,
         msg,
-        (WIN_W - mw) / 2,
+        (WIN_W - measure(font, msg, FONT_SIZE + 4.0)) / 2,
         win_h / 2 - 30,
         FONT_SIZE + 4.0,
         Color::WHITE,
@@ -341,7 +348,7 @@ fn draw_confirm(d: &mut RaylibDrawHandle, font: &Font, win_h: i32) {
         d,
         font,
         sub,
-        (WIN_W - sw) / 2,
+        (WIN_W - measure(font, sub, FONT_SIZE)) / 2,
         win_h / 2 + 10,
         FONT_SIZE,
         DIM,

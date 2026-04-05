@@ -1,5 +1,5 @@
 [package]
-name = "assessment-report"
+name = "peer-asssessment-report-generator"
 version = "1.2.2"
 edition = "2024"
 

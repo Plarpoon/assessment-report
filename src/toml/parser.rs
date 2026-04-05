@@ -44,7 +44,7 @@ impl std::fmt::Display for ConfigError {
 
 pub fn load(path: &Path) -> Result<Config, ConfigError> {
     if defaults::is_missing(path) {
-        defaults::write(path);
+        defaults::write(path).map_err(ConfigError::Io)?;
         return Err(ConfigError::Missing);
     }
 
