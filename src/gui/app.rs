@@ -3,12 +3,15 @@ use raylib::prelude::*;
 use crate::toml::parser::Config;
 use crate::veuros::{Assignment, TOTAL};
 
-const WIN_W: i32 = 520;
+use super::WIN_W;
+
 const FONT_SIZE: i32 = 20;
 const PAD: i32 = 24;
 const ROW_H: i32 = 48;
 const BOX_W: i32 = 90;
 const BOX_H: i32 = 32;
+const BTN_W: i32 = 90;
+const BTN_H: i32 = 22;
 
 const BG: Color = Color {
     r: 24,
@@ -59,11 +62,15 @@ const DIM: Color = Color {
     a: 255,
 };
 
+pub enum Outcome {
+    Done(Vec<Assignment>),
+    EditConfig,
+}
+
 #[derive(PartialEq)]
 enum Screen {
     Assign,
     Confirm,
-    Done,
 }
 
 struct State<'a> {
@@ -111,7 +118,7 @@ impl<'a> State<'a> {
     }
 }
 
-pub fn run(config: &Config) -> Vec<Assignment> {
+pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, config: &Config) -> Outcome {
     let my_name = config.general.my_name.trim();
 
     let peers: Vec<&str> = config
@@ -123,75 +130,63 @@ pub fn run(config: &Config) -> Vec<Assignment> {
         .collect();
 
     let win_h = PAD * 3 + ROW_H * peers.len() as i32 + PAD * 2 + BOX_H + PAD;
+    rl.set_window_size(WIN_W, win_h);
+
     let mut state = State::new(peers);
 
-    let (mut rl, thread) = raylib::init()
-        .size(WIN_W, win_h)
-        .title("vEuro Assignment")
-        .build();
-
-    rl.set_target_fps(60);
-
     loop {
+        // ── Input ─────────────────────────────────────────────────────────────
+
         if state.screen == Screen::Assign {
-            // Click to focus a field
             if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
                 let pos = rl.get_mouse_position();
+
+                if hit(pos, edit_btn_rect(win_h)) {
+                    return Outcome::EditConfig;
+                }
+
                 for (i, _) in state.peers.iter().enumerate() {
-                    let r = field_rect(i);
-                    if pos.x >= r.x
-                        && pos.x <= r.x + r.width
-                        && pos.y >= r.y
-                        && pos.y <= r.y + r.height
-                    {
+                    if hit(pos, field_rect(i)) {
                         state.active = i;
                     }
                 }
             }
 
-            // Tab cycles focus
             if rl.is_key_pressed(KeyboardKey::KEY_TAB) {
                 state.active = (state.active + 1) % state.peers.len();
             }
 
-            // Character input — digits only
             while let Some(c) = rl.get_char_pressed() {
                 if c.is_ascii_digit() {
                     state.buffers[state.active].push(c);
                 }
             }
 
-            // Backspace
             if rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE)
                 || rl.is_key_pressed_repeat(KeyboardKey::KEY_BACKSPACE)
             {
                 state.buffers[state.active].pop();
             }
 
-            // Enter when all 50 assigned → go to confirm
             if rl.is_key_pressed(KeyboardKey::KEY_ENTER) && state.remaining() == 0 {
                 state.screen = Screen::Confirm;
             }
-        } else if state.screen == Screen::Confirm {
+        } else {
             if rl.is_key_pressed(KeyboardKey::KEY_Y) {
-                state.screen = Screen::Done;
+                return Outcome::Done(state.assignments());
             }
             if rl.is_key_pressed(KeyboardKey::KEY_N) {
                 state.screen = Screen::Assign;
             }
         }
 
-        if state.screen == Screen::Done {
-            return state.assignments();
-        }
-
         if rl.window_should_close() {
             std::process::exit(0);
         }
 
+        // ── Draw ──────────────────────────────────────────────────────────────
 
-        
-        let mut d = rl.begin_drawing(&thread);
+        let mut d = rl.begin_drawing(thread);
         d.clear_background(BG);
 
         if state.screen == Screen::Confirm {
@@ -199,7 +194,6 @@ pub fn run(config: &Config) -> Vec<Assignment> {
             continue;
         }
 
-        // Header
         d.draw_text("Assign 50 vEuros", PAD, PAD, FONT_SIZE, FG);
 
         let remaining = state.remaining();
@@ -214,7 +208,6 @@ pub fn run(config: &Config) -> Vec<Assignment> {
         let tw = d.measure_text(&rem_text, FONT_SIZE);
         d.draw_text(&rem_text, WIN_W - PAD - tw, PAD, FONT_SIZE, rem_color);
 
-        // Rows
         for (i, &name) in state.peers.iter().enumerate() {
             let y = PAD * 3 + i as i32 * ROW_H;
             let is_active = state.active == i;
@@ -234,14 +227,12 @@ pub fn run(config: &Config) -> Vec<Assignment> {
                 d.draw_text(val, tx, ty, FONT_SIZE, FG);
             }
 
-            // Cursor blink
             if is_active && (d.get_time() * 2.0) as i32 % 2 == 0 {
-                let cx = tx + d.measure_text(val, FONT_SIZE);
+                let cx = tx + d.measure_text(val, FONT_SIZE) + 1;
                 d.draw_text("|", cx, ty, FONT_SIZE, ACCENT);
             }
         }
 
-        // Hint at bottom
         let hint_y = PAD * 3 + state.peers.len() as i32 * ROW_H + PAD;
         let hint = if remaining == 0 {
             "Press Enter to confirm"
@@ -251,7 +242,13 @@ pub fn run(config: &Config) -> Vec<Assignment> {
             "Click or Tab to select a field"
         };
         d.draw_text(hint, PAD, hint_y, FONT_SIZE - 2, DIM);
+
+        draw_edit_btn(&mut d, win_h);
     }
+}
+
+fn hit(pos: Vector2, r: Rectangle) -> bool {
+    pos.x >= r.x && pos.x <= r.x + r.width && pos.y >= r.y && pos.y <= r.y + r.height
 }
 
 fn field_rect(row: usize) -> Rectangle {
@@ -261,6 +258,38 @@ fn field_rect(row: usize) -> Rectangle {
         width: BOX_W as f32,
         height: BOX_H as f32,
     }
+}
+
+fn edit_btn_rect(win_h: i32) -> Rectangle {
+    Rectangle {
+        x: (WIN_W - PAD - BTN_W) as f32,
+        y: (win_h - PAD - BTN_H) as f32,
+        width: BTN_W as f32,
+        height: BTN_H as f32,
+    }
+}
+
+fn draw_edit_btn(d: &mut RaylibDrawHandle, win_h: i32) {
+    let r = edit_btn_rect(win_h);
+    d.draw_rectangle_rec(
+        r,
+        Color {
+            r: 40,
+            g: 40,
+            b: 55,
+            a: 255,
+        },
+    );
+    d.draw_rectangle_lines_ex(r, 1.0, DIM);
+    let label = "Edit config";
+    let lw = d.measure_text(label, FONT_SIZE - 6);
+    d.draw_text(
+        label,
+        r.x as i32 + (BTN_W - lw) / 2,
+        r.y as i32 + (BTN_H - (FONT_SIZE - 6)) / 2,
+        FONT_SIZE - 6,
+        DIM,
+    );
 }
 
 fn draw_confirm(d: &mut RaylibDrawHandle, win_h: i32) {
