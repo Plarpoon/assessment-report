@@ -256,7 +256,7 @@ fn draw_row(d: &mut RaylibDrawHandle, font: &Font, state: &State, i: usize, name
     d.draw_rectangle_rec(r, if is_active { BOX_ACT } else { BOX_BG });
     d.draw_rectangle_lines_ex(r, 1.5, if is_active { ACCENT } else { DIM });
 
-    let (val_text, val_color) = if val.is_empty() {
+    let (val_text, val_color) = if val.is_empty() && !is_active {
         ("0", DIM)
     } else {
         (val.as_str(), FG)
