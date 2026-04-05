@@ -32,8 +32,4 @@ Once all 50 vEuros are distributed and confirmed, the output file is written to 
 cargo build --release
 ```
 
-Linux requires a few system packages for raylib:
-```sh
-sudo apt install libwayland-dev libxkbcommon-dev wayland-protocols \
-  libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev
-```
+Be sure to check the Linux dependencies for RayLib in case you need to install them.
