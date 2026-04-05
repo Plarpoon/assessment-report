@@ -11,6 +11,7 @@ use crate::veuros::Assignment;
 pub const WIN_W: i32 = 520;
 
 static FONT_BYTES: &[u8] = include_bytes!("../assets/NotoSans-Regular.ttf");
+static ICON_BYTES: &[u8] = include_bytes!("../assets/icon.png");
 
 pub fn run(config: Option<Config>, config_path: PathBuf) -> (Config, Vec<Assignment>) {
     let (mut rl, thread) = raylib::init()
@@ -30,6 +31,10 @@ pub fn run(config: Option<Config>, config_path: PathBuf) -> (Config, Vec<Assignm
     let font = rl
         .load_font_from_memory(&thread, ".ttf", FONT_BYTES, 32, Some(&codepoints))
         .expect("failed to load embedded font");
+
+    if let Ok(icon) = Image::load_image_from_mem(".png", ICON_BYTES) {
+        rl.set_window_icon(icon);
+    }
 
     font.texture()
         .set_texture_filter(&thread, TextureFilter::TEXTURE_FILTER_BILINEAR);
