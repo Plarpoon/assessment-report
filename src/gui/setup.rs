@@ -6,7 +6,7 @@ use crate::toml::parser::{Config, General, Members};
 
 use super::WIN_W;
 
-const FONT_SIZE: i32 = 20;
+const FONT_SIZE: f32 = 20.0;
 const PAD: i32 = 24;
 const INPUT_W: i32 = 360;
 const INPUT_H: i32 = 36;
@@ -86,18 +86,15 @@ impl SetupState {
                 input: String::new(),
                 error: None,
             },
-            Some(c) => {
-                let member_count = c.members.students.len();
-                Self {
-                    step: Step::GroupName,
-                    group_name: c.general.group_name.clone(),
-                    my_name: c.general.my_name.clone(),
-                    member_count,
-                    members: c.members.students.clone(),
-                    input: c.general.group_name.clone(),
-                    error: None,
-                }
-            }
+            Some(c) => Self {
+                step: Step::GroupName,
+                group_name: c.general.group_name.clone(),
+                my_name: c.general.my_name.clone(),
+                member_count: c.members.students.len(),
+                members: c.members.students.clone(),
+                input: c.general.group_name.clone(),
+                error: None,
+            },
         }
     }
 
@@ -129,11 +126,11 @@ impl SetupState {
                 Ok(n) if (1..=7).contains(&n) => {
                     self.member_count = n;
                     self.input = String::new();
-                    if n == 1 {
-                        self.step = Step::Confirm;
+                    self.step = if n == 1 {
+                        Step::Confirm
                     } else {
-                        self.step = Step::MemberName(1);
-                    }
+                        Step::MemberName(1)
+                    };
                 }
                 Ok(_) => self.error = Some("Enter a number between 1 and 7.".into()),
                 Err(_) => self.error = Some("Please enter a number.".into()),
@@ -150,20 +147,20 @@ impl SetupState {
                     .iter()
                     .any(|m| m.trim().eq_ignore_ascii_case(&val))
                 {
-                    if val.trim().eq_ignore_ascii_case(&self.my_name) {
-                        self.error = Some("Your name has already been added.".into());
+                    self.error = Some(if val.trim().eq_ignore_ascii_case(&self.my_name) {
+                        "Your name has already been added.".into()
                     } else {
-                        self.error = Some(format!("\"{}\" has already been added.", val));
-                    }
+                        format!("\"{}\" has already been added.", val)
+                    });
                     return;
                 }
                 self.members.push(val);
                 self.input = String::new();
-                if idx + 1 < self.member_count {
-                    self.step = Step::MemberName(idx + 1);
+                self.step = if idx + 1 < self.member_count {
+                    Step::MemberName(idx + 1)
                 } else {
-                    self.step = Step::Confirm;
-                }
+                    Step::Confirm
+                };
             }
             Step::Confirm => {}
         }
@@ -185,6 +182,7 @@ impl SetupState {
 pub fn run(
     rl: &mut RaylibHandle,
     thread: &RaylibThread,
+    font: &Font,
     config_path: &Path,
     prefill: Option<&Config>,
 ) -> Config {
@@ -193,8 +191,6 @@ pub fn run(
     let mut state = SetupState::new(prefill);
 
     loop {
-        // ── Input ─────────────────────────────────────────────────────────────
-
         if state.step == Step::Confirm {
             if rl.is_key_pressed(KeyboardKey::KEY_Y) {
                 let config = state.to_config();
@@ -224,23 +220,39 @@ pub fn run(
             std::process::exit(0);
         }
 
-        // ── Draw ──────────────────────────────────────────────────────────────
-
         let mut d = rl.begin_drawing(thread);
         d.clear_background(BG);
 
         match &state.step {
-            Step::Confirm => draw_confirm(&mut d, &state),
-            _ => draw_input(&mut d, &state),
+            Step::Confirm => draw_confirm(&mut d, font, &state),
+            _ => draw_input(&mut d, font, &state),
         }
     }
 }
 
-fn draw_input(d: &mut RaylibDrawHandle, state: &SetupState) {
+fn txt(d: &mut RaylibDrawHandle, font: &Font, text: &str, x: i32, y: i32, size: f32, color: Color) {
+    d.draw_text_ex(
+        font,
+        text,
+        Vector2 {
+            x: x as f32,
+            y: y as f32,
+        },
+        size,
+        1.0,
+        color,
+    );
+}
+
+fn measure(font: &Font, text: &str, size: f32) -> i32 {
+    font.measure_text(text, size, 1.0).x as i32
+}
+
+fn draw_input(d: &mut RaylibDrawHandle, font: &Font, state: &SetupState) {
     let (title, sub) = step_labels(&state.step, state.member_count);
 
-    d.draw_text(title, PAD, PAD, FONT_SIZE + 2, FG);
-    d.draw_text(sub, PAD, PAD + 32, FONT_SIZE - 2, DIM);
+    txt(d, font, title, PAD, PAD, FONT_SIZE + 2.0, FG);
+    txt(d, font, sub, PAD, PAD + 32, FONT_SIZE - 2.0, DIM);
 
     let bx = PAD;
     let by = PAD + 70;
@@ -253,61 +265,76 @@ fn draw_input(d: &mut RaylibDrawHandle, state: &SetupState) {
     d.draw_rectangle_rec(rect, BOX_ACT);
     d.draw_rectangle_lines_ex(rect, 1.5, ACCENT);
 
-    let display = if state.input.is_empty() { DIM } else { FG };
-    let text = if state.input.is_empty() {
-        "type and press Enter"
+    let (display_color, text) = if state.input.is_empty() {
+        (DIM, "type and press Enter")
     } else {
-        &state.input
+        (FG, state.input.as_str())
     };
-    d.draw_text(
+    txt(
+        d,
+        font,
         text,
         bx + 8,
-        by + (INPUT_H - FONT_SIZE) / 2,
+        by + (INPUT_H - FONT_SIZE as i32) / 2,
         FONT_SIZE,
-        display,
+        display_color,
     );
 
-    let cx = bx + 8 + d.measure_text(&state.input, FONT_SIZE) + 1;
     if (d.get_time() * 2.0) as i32 % 2 == 0 {
-        d.draw_text("|", cx, by + (INPUT_H - FONT_SIZE) / 2, FONT_SIZE, ACCENT);
+        let cx = bx + 8 + measure(font, &state.input, FONT_SIZE) + 1;
+        txt(
+            d,
+            font,
+            "|",
+            cx,
+            by + (INPUT_H - FONT_SIZE as i32) / 2,
+            FONT_SIZE,
+            ACCENT,
+        );
     }
 
     if let Some(err) = &state.error {
-        d.draw_text(err, PAD, by + INPUT_H + 12, FONT_SIZE - 2, RED);
+        txt(d, font, err, PAD, by + INPUT_H + 12, FONT_SIZE - 2.0, RED);
     }
 
-    d.draw_text(
+    txt(
+        d,
+        font,
         "Press Enter to continue",
         PAD,
-        WIN_H - PAD - FONT_SIZE,
-        FONT_SIZE - 4,
+        WIN_H - PAD - FONT_SIZE as i32,
+        FONT_SIZE - 4.0,
         DIM,
     );
 }
 
-fn draw_confirm(d: &mut RaylibDrawHandle, state: &SetupState) {
-    d.draw_text("Confirm config", PAD, PAD, FONT_SIZE + 2, FG);
+fn draw_confirm(d: &mut RaylibDrawHandle, font: &Font, state: &SetupState) {
+    txt(d, font, "Confirm config", PAD, PAD, FONT_SIZE + 2.0, FG);
 
     let mut y = PAD + 36;
-    let line_h = FONT_SIZE + 6;
+    let line_h = FONT_SIZE as i32 + 6;
 
-    d.draw_text(
+    txt(
+        d,
+        font,
         &format!("Group:  {}", state.group_name),
         PAD,
         y,
-        FONT_SIZE - 2,
+        FONT_SIZE - 2.0,
         DIM,
     );
     y += line_h;
-    d.draw_text(
+    txt(
+        d,
+        font,
         &format!("You:    {}", state.my_name),
         PAD,
         y,
-        FONT_SIZE - 2,
+        FONT_SIZE - 2.0,
         DIM,
     );
     y += line_h;
-    d.draw_text("Members:", PAD, y, FONT_SIZE - 2, DIM);
+    txt(d, font, "Members:", PAD, y, FONT_SIZE - 2.0, DIM);
     y += line_h;
 
     for (i, name) in state.members.iter().enumerate() {
@@ -316,21 +343,23 @@ fn draw_confirm(d: &mut RaylibDrawHandle, state: &SetupState) {
         } else {
             format!("  {}. {}", i + 1, name)
         };
-        d.draw_text(&label, PAD, y, FONT_SIZE - 2, FG);
+        txt(d, font, &label, PAD, y, FONT_SIZE - 2.0, FG);
         y += line_h;
     }
 
     y += 6;
-    d.draw_text(
+    txt(
+        d,
+        font,
         "[Y] Save and continue   [N] Start over",
         PAD,
         y,
-        FONT_SIZE - 2,
+        FONT_SIZE - 2.0,
         GREEN,
     );
 }
 
-fn step_labels(step: &Step, total: usize) -> (&'static str, &'static str) {
+fn step_labels(step: &Step, _total: usize) -> (&'static str, &'static str) {
     match step {
         Step::GroupName => ("Setup — Group name", "Enter your group's name"),
         Step::MyName => (
@@ -338,10 +367,7 @@ fn step_labels(step: &Step, total: usize) -> (&'static str, &'static str) {
             "Enter your full name as registered at LNU",
         ),
         Step::MemberCount => ("Setup — Team size", "How many members in total? (1–7)"),
-        Step::MemberName(i) => {
-            let _ = (i, total);
-            ("Setup — Member name", "Enter this member's full name")
-        }
+        Step::MemberName(_) => ("Setup — Member name", "Enter this member's full name"),
         Step::Confirm => ("", ""),
     }
 }

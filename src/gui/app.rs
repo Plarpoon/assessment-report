@@ -5,7 +5,7 @@ use crate::veuros::{Assignment, TOTAL};
 
 use super::WIN_W;
 
-const FONT_SIZE: i32 = 20;
+const FONT_SIZE: f32 = 20.0;
 const PAD: i32 = 24;
 const ROW_H: i32 = 48;
 const BOX_W: i32 = 90;
@@ -118,7 +118,7 @@ impl<'a> State<'a> {
     }
 }
 
-pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, config: &Config) -> Outcome {
+pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, font: &Font, config: &Config) -> Outcome {
     let my_name = config.general.my_name.trim();
 
     let peers: Vec<&str> = config
@@ -135,16 +135,12 @@ pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, config: &Config) -> Out
     let mut state = State::new(peers);
 
     loop {
-        // ── Input ─────────────────────────────────────────────────────────────
-
         if state.screen == Screen::Assign {
             if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
                 let pos = rl.get_mouse_position();
-
                 if hit(pos, edit_btn_rect(win_h)) {
                     return Outcome::EditConfig;
                 }
-
                 for (i, _) in state.peers.iter().enumerate() {
                     if hit(pos, field_rect(i)) {
                         state.active = i;
@@ -184,17 +180,15 @@ pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, config: &Config) -> Out
             std::process::exit(0);
         }
 
-        // ── Draw ──────────────────────────────────────────────────────────────
-
         let mut d = rl.begin_drawing(thread);
         d.clear_background(BG);
 
         if state.screen == Screen::Confirm {
-            draw_confirm(&mut d, win_h);
+            draw_confirm(&mut d, font, win_h);
             continue;
         }
 
-        d.draw_text("Assign 50 vEuros", PAD, PAD, FONT_SIZE, FG);
+        txt(&mut d, font, "Assign 50 vEuros", PAD, PAD, FONT_SIZE, FG);
 
         let remaining = state.remaining();
         let rem_color = if remaining < 0 {
@@ -205,14 +199,30 @@ pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, config: &Config) -> Out
             ACCENT
         };
         let rem_text = format!("Remaining: {remaining}");
-        let tw = d.measure_text(&rem_text, FONT_SIZE);
-        d.draw_text(&rem_text, WIN_W - PAD - tw, PAD, FONT_SIZE, rem_color);
+        let tw = measure(font, &rem_text, FONT_SIZE);
+        txt(
+            &mut d,
+            font,
+            &rem_text,
+            WIN_W - PAD - tw,
+            PAD,
+            FONT_SIZE,
+            rem_color,
+        );
 
         for (i, &name) in state.peers.iter().enumerate() {
             let y = PAD * 3 + i as i32 * ROW_H;
             let is_active = state.active == i;
 
-            d.draw_text(name, PAD, y + (BOX_H - FONT_SIZE) / 2, FONT_SIZE, FG);
+            txt(
+                &mut d,
+                font,
+                name,
+                PAD,
+                y + (BOX_H - FONT_SIZE as i32) / 2,
+                FONT_SIZE,
+                FG,
+            );
 
             let r = field_rect(i);
             d.draw_rectangle_rec(r, if is_active { BOX_ACT } else { BOX_BG });
@@ -220,16 +230,17 @@ pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, config: &Config) -> Out
 
             let val = &state.buffers[i];
             let tx = r.x as i32 + 8;
-            let ty = r.y as i32 + (BOX_H - FONT_SIZE) / 2;
+            let ty = r.y as i32 + (BOX_H - FONT_SIZE as i32) / 2;
+
             if val.is_empty() {
-                d.draw_text("0", tx, ty, FONT_SIZE, DIM);
+                txt(&mut d, font, "0", tx, ty, FONT_SIZE, DIM);
             } else {
-                d.draw_text(val, tx, ty, FONT_SIZE, FG);
+                txt(&mut d, font, val, tx, ty, FONT_SIZE, FG);
             }
 
             if is_active && (d.get_time() * 2.0) as i32 % 2 == 0 {
-                let cx = tx + d.measure_text(val, FONT_SIZE) + 1;
-                d.draw_text("|", cx, ty, FONT_SIZE, ACCENT);
+                let cx = tx + measure(font, val, FONT_SIZE);
+                txt(&mut d, font, "|", cx, ty, FONT_SIZE, ACCENT);
             }
         }
 
@@ -241,10 +252,28 @@ pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, config: &Config) -> Out
         } else {
             "Click or Tab to select a field"
         };
-        d.draw_text(hint, PAD, hint_y, FONT_SIZE - 2, DIM);
+        txt(&mut d, font, hint, PAD, hint_y, FONT_SIZE - 2.0, DIM);
 
-        draw_edit_btn(&mut d, win_h);
+        draw_edit_btn(&mut d, font, win_h);
     }
+}
+
+fn txt(d: &mut RaylibDrawHandle, font: &Font, text: &str, x: i32, y: i32, size: f32, color: Color) {
+    d.draw_text_ex(
+        font,
+        text,
+        Vector2 {
+            x: x as f32,
+            y: y as f32,
+        },
+        size,
+        1.0,
+        color,
+    );
+}
+
+fn measure(font: &Font, text: &str, size: f32) -> i32 {
+    font.measure_text(text, size, 1.0).x as i32
 }
 
 fn hit(pos: Vector2, r: Rectangle) -> bool {
@@ -269,7 +298,7 @@ fn edit_btn_rect(win_h: i32) -> Rectangle {
     }
 }
 
-fn draw_edit_btn(d: &mut RaylibDrawHandle, win_h: i32) {
+fn draw_edit_btn(d: &mut RaylibDrawHandle, font: &Font, win_h: i32) {
     let r = edit_btn_rect(win_h);
     d.draw_rectangle_rec(
         r,
@@ -282,27 +311,39 @@ fn draw_edit_btn(d: &mut RaylibDrawHandle, win_h: i32) {
     );
     d.draw_rectangle_lines_ex(r, 1.0, DIM);
     let label = "Edit config";
-    let lw = d.measure_text(label, FONT_SIZE - 6);
-    d.draw_text(
+    let lw = measure(font, label, FONT_SIZE - 6.0);
+    txt(
+        d,
+        font,
         label,
         r.x as i32 + (BTN_W - lw) / 2,
-        r.y as i32 + (BTN_H - (FONT_SIZE - 6)) / 2,
-        FONT_SIZE - 6,
+        r.y as i32 + (BTN_H - (FONT_SIZE as i32 - 6)) / 2,
+        FONT_SIZE - 6.0,
         DIM,
     );
 }
 
-fn draw_confirm(d: &mut RaylibDrawHandle, win_h: i32) {
+fn draw_confirm(d: &mut RaylibDrawHandle, font: &Font, win_h: i32) {
     let msg = "All 50 vEuros assigned.";
     let sub = "Confirm and write file?  [Y] yes   [N] back";
-    let mw = d.measure_text(msg, FONT_SIZE + 4);
-    let sw = d.measure_text(sub, FONT_SIZE);
-    d.draw_text(
+    let mw = measure(font, msg, FONT_SIZE + 4.0);
+    let sw = measure(font, sub, FONT_SIZE);
+    txt(
+        d,
+        font,
         msg,
         (WIN_W - mw) / 2,
         win_h / 2 - 30,
-        FONT_SIZE + 4,
+        FONT_SIZE + 4.0,
         Color::WHITE,
     );
-    d.draw_text(sub, (WIN_W - sw) / 2, win_h / 2 + 10, FONT_SIZE, DIM);
+    txt(
+        d,
+        font,
+        sub,
+        (WIN_W - sw) / 2,
+        win_h / 2 + 10,
+        FONT_SIZE,
+        DIM,
+    );
 }
