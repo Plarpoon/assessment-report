@@ -6,6 +6,3 @@ cognitive-complexity-threshold = 10
 
 # Allow slightly longer lines in documentation and comments
 doc-valid-idents = []
-
-# Enforce explicit returns where the intent would otherwise be ambiguous
-explicit-return-type = true
