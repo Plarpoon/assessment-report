@@ -12,48 +12,18 @@ const INPUT_W: i32 = 360;
 const INPUT_H: i32 = 36;
 const WIN_H: i32 = 260;
 
-const BG: Color = Color {
-    r: 24,
-    g: 24,
-    b: 32,
-    a: 255,
-};
-const FG: Color = Color {
-    r: 220,
-    g: 220,
-    b: 220,
-    a: 255,
-};
-const ACCENT: Color = Color {
-    r: 90,
-    g: 160,
-    b: 255,
-    a: 255,
-};
-const BOX_ACT: Color = Color {
-    r: 50,
-    g: 50,
-    b: 70,
-    a: 255,
-};
-const DIM: Color = Color {
-    r: 100,
-    g: 100,
-    b: 120,
-    a: 255,
-};
-const RED: Color = Color {
-    r: 220,
-    g: 60,
-    b: 60,
-    a: 255,
-};
-const GREEN: Color = Color {
-    r: 80,
-    g: 200,
-    b: 120,
-    a: 255,
-};
+#[rustfmt::skip]
+mod colors {
+    use raylib::prelude::Color;
+    pub const BG:      Color = Color { r: 24,  g: 24,  b: 32,  a: 255 };
+    pub const FG:      Color = Color { r: 220, g: 220, b: 220, a: 255 };
+    pub const ACCENT:  Color = Color { r: 90,  g: 160, b: 255, a: 255 };
+    pub const BOX_ACT: Color = Color { r: 50,  g: 50,  b: 70,  a: 255 };
+    pub const DIM:     Color = Color { r: 100, g: 100, b: 120, a: 255 };
+    pub const RED:     Color = Color { r: 220, g: 60,  b: 60,  a: 255 };
+    pub const GREEN:   Color = Color { r: 80,  g: 200, b: 120, a: 255 };
+}
+use colors::*;
 
 #[derive(PartialEq)]
 enum Step {
@@ -128,11 +98,7 @@ impl SetupState {
                 Ok(n) if (1..=7).contains(&n) => {
                     self.member_count = n;
                     self.input = String::new();
-                    self.step = if n == 1 {
-                        Step::Confirm
-                    } else {
-                        Step::MemberName(1)
-                    };
+                    self.step = if n == 1 { Step::Confirm } else { Step::MemberName(1) };
                 }
                 Ok(_) => self.error = Some("Enter a number between 1 and 7.".into()),
                 Err(_) => self.error = Some("Please enter a number.".into()),
@@ -144,10 +110,7 @@ impl SetupState {
                     self.error = Some("Name cannot be empty.".into());
                     return;
                 }
-                let duplicate = self
-                    .members
-                    .iter()
-                    .any(|m| m.trim().eq_ignore_ascii_case(&val));
+                let duplicate = self.members.iter().any(|m| m.trim().eq_ignore_ascii_case(&val));
                 if duplicate {
                     self.error = Some(if val.trim().eq_ignore_ascii_case(&self.my_name) {
                         "Your name has already been added.".into()
@@ -213,8 +176,7 @@ pub fn run(
                         state.input.push(c);
                     }
                 }
-                if rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE)
-                    || rl.is_key_pressed_repeat(KeyboardKey::KEY_BACKSPACE)
+                if rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE) || rl.is_key_pressed_repeat(KeyboardKey::KEY_BACKSPACE)
                 {
                     state.input.pop();
                 }
@@ -310,15 +272,7 @@ fn draw_confirm(d: &mut RaylibDrawHandle, font: &Font, state: &SetupState) {
         ("Group:  ", state.group_name.as_str(), DIM),
         ("You:    ", state.my_name.as_str(), DIM),
     ] {
-        txt(
-            d,
-            font,
-            &format!("{label}{value}"),
-            PAD,
-            y,
-            FONT_SIZE - 2.0,
-            color,
-        );
+        txt(d, font, &format!("{label}{value}"), PAD, y, FONT_SIZE - 2.0, color);
         y += line_h;
     }
 
@@ -350,11 +304,8 @@ fn draw_confirm(d: &mut RaylibDrawHandle, font: &Font, state: &SetupState) {
 fn step_labels(step: &Step) -> (&'static str, &'static str) {
     match step {
         Step::GroupName => ("Setup — Group name", "Enter your group's name"),
-        Step::MyName => (
-            "Setup — Your name",
-            "Enter your full name as registered at LNU",
-        ),
-        Step::MemberCount => ("Setup — Team size", "How many members in total? (1–7)"),
+        Step::MyName => ("Setup — Your name", "Enter your full name as registered at LNU"),
+        Step::MemberCount => ("Setup — Team size", "How many members in total? (1-7)"),
         Step::MemberName(_) => ("Setup — Member name", "Enter this member's full name"),
         Step::Confirm => ("", ""),
     }

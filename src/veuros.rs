@@ -93,7 +93,7 @@ fn read_line() -> Option<String> {
     let stdin = io::stdin();
     let mut line = String::new();
     match stdin.lock().read_line(&mut line) {
-        Ok(0) | Err(_) => None,
+        Ok(0) | Err(_) => None, // EOF or broken pipe: treat as no input
         Ok(_) => Some(line),
     }
 }

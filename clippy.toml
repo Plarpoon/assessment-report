@@ -1,0 +1,11 @@
+# Minimum Rust version — keeps lint suggestions compatible with your toolchain
+msrv = "1.82"
+
+# Cognitive complexity threshold — flag functions that are getting hard to follow
+cognitive-complexity-threshold = 10
+
+# Allow slightly longer lines in documentation and comments
+doc-valid-idents = []
+
+# Enforce explicit returns where the intent would otherwise be ambiguous
+explicit-return-type = true

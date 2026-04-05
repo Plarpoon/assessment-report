@@ -1,0 +1,37 @@
+edition = "2024"
+
+# Line width — generous enough for descriptive names without forcing awkward wraps
+max_width = 120
+
+# Imports — merge where possible, std/extern/crate grouped and sorted
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+imports_layout = "HorizontalVertical"
+
+# Trailing commas in multi-line constructs
+trailing_comma = "Vertical"
+trailing_semicolon = true
+
+# Braces
+brace_style = "SameLineWhere"
+where_single_line = false
+control_brace_style = "AlwaysSameLine"
+
+# Match arms
+match_arm_blocks = true
+match_arm_leading_pipes = "Never"
+
+# Blank lines — keep structure readable without excessive whitespace
+blank_lines_upper_bound = 2
+blank_lines_lower_bound = 0
+
+# Comments
+comment_width = 120
+wrap_comments = false
+normalize_comments = true
+
+# Misc
+use_field_init_shorthand = true
+use_try_shorthand = true
+force_explicit_abi = true
+newline_style = "Unix"

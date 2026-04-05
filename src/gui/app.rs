@@ -13,60 +13,20 @@ const BOX_H: i32 = 32;
 const BTN_W: i32 = 90;
 const BTN_H: i32 = 22;
 
-const BG: Color = Color {
-    r: 24,
-    g: 24,
-    b: 32,
-    a: 255,
-};
-const FG: Color = Color {
-    r: 220,
-    g: 220,
-    b: 220,
-    a: 255,
-};
-const ACCENT: Color = Color {
-    r: 90,
-    g: 160,
-    b: 255,
-    a: 255,
-};
-const RED: Color = Color {
-    r: 220,
-    g: 60,
-    b: 60,
-    a: 255,
-};
-const BOX_BG: Color = Color {
-    r: 36,
-    g: 36,
-    b: 48,
-    a: 255,
-};
-const BOX_ACT: Color = Color {
-    r: 50,
-    g: 50,
-    b: 70,
-    a: 255,
-};
-const GREEN: Color = Color {
-    r: 80,
-    g: 200,
-    b: 120,
-    a: 255,
-};
-const DIM: Color = Color {
-    r: 100,
-    g: 100,
-    b: 120,
-    a: 255,
-};
-const BTN_BG: Color = Color {
-    r: 40,
-    g: 40,
-    b: 55,
-    a: 255,
-};
+#[rustfmt::skip]
+mod colors {
+    use raylib::prelude::Color;
+    pub const BG:      Color = Color { r: 24,  g: 24,  b: 32,  a: 255 };
+    pub const FG:      Color = Color { r: 220, g: 220, b: 220, a: 255 };
+    pub const ACCENT:  Color = Color { r: 90,  g: 160, b: 255, a: 255 };
+    pub const RED:     Color = Color { r: 220, g: 60,  b: 60,  a: 255 };
+    pub const BOX_BG:  Color = Color { r: 36,  g: 36,  b: 48,  a: 255 };
+    pub const BOX_ACT: Color = Color { r: 50,  g: 50,  b: 70,  a: 255 };
+    pub const GREEN:   Color = Color { r: 80,  g: 200, b: 120, a: 255 };
+    pub const DIM:     Color = Color { r: 100, g: 100, b: 120, a: 255 };
+    pub const BTN_BG:  Color = Color { r: 40,  g: 40,  b: 55,  a: 255 };
+}
+use colors::*;
 
 pub enum Outcome {
     Done(Vec<Assignment>),
@@ -98,11 +58,7 @@ impl<'a> State<'a> {
     }
 
     fn remaining(&self) -> i64 {
-        let total: u32 = self
-            .buffers
-            .iter()
-            .map(|b| b.parse::<u32>().unwrap_or(0))
-            .sum();
+        let total: u32 = self.buffers.iter().map(|b| b.parse::<u32>().unwrap_or(0)).sum();
         TOTAL as i64 - total as i64
     }
 
@@ -129,6 +85,7 @@ pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, font: &Font, config: &C
         .filter(|s| !s.eq_ignore_ascii_case(my_name))
         .collect();
 
+    // Window height grows with the number of peers: header + rows + hint row.
     let win_h = PAD * 3 + ROW_H * peers.len() as i32 + PAD * 2 + BOX_H + PAD;
     rl.set_window_size(WIN_W, win_h);
 
@@ -177,9 +134,7 @@ fn handle_input(rl: &mut RaylibHandle, state: &mut State, win_h: i32) -> Option<
                 }
             }
 
-            if rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE)
-                || rl.is_key_pressed_repeat(KeyboardKey::KEY_BACKSPACE)
-            {
+            if rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE) || rl.is_key_pressed_repeat(KeyboardKey::KEY_BACKSPACE) {
                 state.buffers[state.active].pop();
             }
 
@@ -210,15 +165,7 @@ fn draw_assign(d: &mut RaylibDrawHandle, font: &Font, state: &State, win_h: i32)
     };
     let rem_text = format!("Remaining: {remaining}");
     let tw = measure(font, &rem_text, FONT_SIZE);
-    txt(
-        d,
-        font,
-        &rem_text,
-        WIN_W - PAD - tw,
-        PAD,
-        FONT_SIZE,
-        rem_color,
-    );
+    txt(d, font, &rem_text, WIN_W - PAD - tw, PAD, FONT_SIZE, rem_color);
 
     for (i, &name) in state.peers.iter().enumerate() {
         draw_row(d, font, state, i, name);
@@ -243,19 +190,13 @@ fn draw_row(d: &mut RaylibDrawHandle, font: &Font, state: &State, i: usize, name
     let tx = r.x as i32 + 8;
     let ty = r.y as i32 + (BOX_H - FONT_SIZE as i32) / 2;
 
-    txt(
-        d,
-        font,
-        name,
-        PAD,
-        y + (BOX_H - FONT_SIZE as i32) / 2,
-        FONT_SIZE,
-        FG,
-    );
+    txt(d, font, name, PAD, y + (BOX_H - FONT_SIZE as i32) / 2, FONT_SIZE, FG);
 
     d.draw_rectangle_rec(r, if is_active { BOX_ACT } else { BOX_BG });
     d.draw_rectangle_lines_ex(r, 1.5, if is_active { ACCENT } else { DIM });
 
+    // Show the placeholder "0" only when the field is unfocused and empty,
+    // so the blinking cursor does not overlap it when the field is active.
     let (val_text, val_color) = if val.is_empty() && !is_active {
         ("0", DIM)
     } else {
@@ -264,15 +205,7 @@ fn draw_row(d: &mut RaylibDrawHandle, font: &Font, state: &State, i: usize, name
     txt(d, font, val_text, tx, ty, FONT_SIZE, val_color);
 
     if is_active && (d.get_time() * 2.0) as i32 % 2 == 0 {
-        txt(
-            d,
-            font,
-            "|",
-            tx + measure(font, val, FONT_SIZE),
-            ty,
-            FONT_SIZE,
-            ACCENT,
-        );
+        txt(d, font, "|", tx + measure(font, val, FONT_SIZE), ty, FONT_SIZE, ACCENT);
     }
 }
 

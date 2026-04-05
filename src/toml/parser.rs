@@ -43,13 +43,14 @@ impl std::fmt::Display for ConfigError {
 }
 
 pub fn load(path: &Path) -> Result<Config, ConfigError> {
+    // First run: generate a template the user can fill in, then exit.
     if defaults::is_missing(path) {
         defaults::write(path).map_err(ConfigError::Io)?;
         return Err(ConfigError::Missing);
     }
 
     let raw = std::fs::read_to_string(path).map_err(ConfigError::Io)?;
-    let config: Config = toml::from_str(&raw).map_err(ConfigError::Parse)?;
+    let config = toml::from_str(&raw).map_err(ConfigError::Parse)?;
 
     validate(&config)?;
     Ok(config)
@@ -62,7 +63,7 @@ fn validate(config: &Config) -> Result<(), ConfigError> {
 
     if students.is_empty() || students.len() > 7 {
         return Err(ConfigError::Semantic(format!(
-            "[members] students must have 1–7 entries (found {}).",
+            "[members] students must have 1-7 entries (found {}).",
             students.len()
         )));
     }
@@ -70,16 +71,11 @@ fn validate(config: &Config) -> Result<(), ConfigError> {
     let mut seen = HashSet::new();
     for name in students {
         if !seen.insert(name.trim().to_lowercase()) {
-            return Err(ConfigError::Semantic(format!(
-                "duplicate student name: \"{name}\""
-            )));
+            return Err(ConfigError::Semantic(format!("duplicate student name: \"{name}\"")));
         }
     }
 
-    if !students
-        .iter()
-        .any(|s| s.trim().eq_ignore_ascii_case(my_name))
-    {
+    if !students.iter().any(|s| s.trim().eq_ignore_ascii_case(my_name)) {
         return Err(ConfigError::Semantic(format!(
             "my_name \"{my_name}\" is not listed under [members] students"
         )));
