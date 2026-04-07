@@ -4,15 +4,13 @@ use raylib::prelude::*;
 
 use crate::toml::parser::{Config, General, Members};
 
-use super::clipboard::ClipboardAction;
+use super::clipboard::{self, ClipboardAction};
 use super::{Fonts, WIN_W};
 
 const FONT_SIZE: f32 = 20.0;
 const PAD: i32 = 24;
 const INPUT_W: i32 = 360;
 const INPUT_H: i32 = 36;
-
-// Height for input steps (fixed — only one field visible at a time).
 const INPUT_WIN_H: i32 = 260;
 
 #[rustfmt::skip]
@@ -76,66 +74,92 @@ impl SetupState {
         }
     }
 
+    fn confirm_win_h(&self) -> i32 {
+        let line_h = FONT_SIZE as i32 + 6;
+        let n_lines = 4 + self.members.len() as i32;
+        PAD + line_h * n_lines + PAD * 2
+    }
+
     fn advance(&mut self) {
         self.error = None;
         self.selected_all = false;
+
         match &self.step {
-            Step::GroupName => {
-                let val = self.input.trim().to_string();
-                if val.is_empty() {
-                    self.error = Some("Group name cannot be empty.".into());
-                    return;
-                }
-                self.group_name = val;
-                self.input = self.my_name.clone();
-                self.step = Step::MyName;
-            }
-            Step::MyName => {
-                let val = self.input.trim().to_string();
-                if val.is_empty() {
-                    self.error = Some("Your name cannot be empty.".into());
-                    return;
-                }
-                self.my_name = val.clone();
-                self.members = vec![val];
-                self.input = String::new();
-                self.step = Step::MemberCount;
-            }
-            Step::MemberCount => match self.input.trim().parse::<usize>() {
-                Ok(n) if (1..=7).contains(&n) => {
-                    self.member_count = n;
-                    self.input = String::new();
-                    self.step = if n == 1 { Step::Confirm } else { Step::MemberName(1) };
-                }
-                Ok(_) => self.error = Some("Enter a number between 1 and 7.".into()),
-                Err(_) => self.error = Some("Please enter a number.".into()),
-            },
-            Step::MemberName(idx) => {
-                let idx = *idx;
-                let val = self.input.trim().to_string();
-                if val.is_empty() {
-                    self.error = Some("Name cannot be empty.".into());
-                    return;
-                }
-                let duplicate = self.members.iter().any(|m| m.trim().eq_ignore_ascii_case(&val));
-                if duplicate {
-                    self.error = Some(if val.trim().eq_ignore_ascii_case(&self.my_name) {
-                        "Your name has already been added.".into()
-                    } else {
-                        format!("\"{}\" has already been added.", val)
-                    });
-                    return;
-                }
-                self.members.push(val);
-                self.input = String::new();
-                self.step = if idx + 1 < self.member_count {
-                    Step::MemberName(idx + 1)
-                } else {
-                    Step::Confirm
-                };
-            }
+            Step::GroupName => self.advance_group_name(),
+            Step::MyName => self.advance_my_name(),
+            Step::MemberCount => self.advance_member_count(),
+            Step::MemberName(idx) => self.advance_member_name(*idx),
             Step::Confirm => {}
         }
+    }
+
+    fn trimmed_input(&self) -> String {
+        self.input.trim().to_string()
+    }
+
+    fn require_non_empty(&mut self, err: &str) -> Option<String> {
+        let val = self.trimmed_input();
+        if val.is_empty() {
+            self.error = Some(err.into());
+            None
+        } else {
+            Some(val)
+        }
+    }
+
+    fn advance_group_name(&mut self) {
+        let Some(val) = self.require_non_empty("Group name cannot be empty.") else {
+            return;
+        };
+        self.group_name = val;
+        self.input = self.my_name.clone();
+        self.step = Step::MyName;
+    }
+
+    fn advance_my_name(&mut self) {
+        let Some(val) = self.require_non_empty("Your name cannot be empty.") else {
+            return;
+        };
+        self.my_name = val.clone();
+        self.members = vec![val];
+        self.input = String::new();
+        self.step = Step::MemberCount;
+    }
+
+    fn advance_member_count(&mut self) {
+        match self.input.trim().parse::<usize>() {
+            Ok(n) if (1..=7).contains(&n) => {
+                self.member_count = n;
+                self.input = String::new();
+                self.step = if n == 1 { Step::Confirm } else { Step::MemberName(1) };
+            }
+            Ok(_) => self.error = Some("Enter a number between 1 and 7.".into()),
+            Err(_) => self.error = Some("Please enter a number.".into()),
+        }
+    }
+
+    fn advance_member_name(&mut self, idx: usize) {
+        let Some(val) = self.require_non_empty("Name cannot be empty.") else {
+            return;
+        };
+
+        let is_dup = self.members.iter().any(|m| m.trim().eq_ignore_ascii_case(&val));
+        if is_dup {
+            self.error = Some(if val.trim().eq_ignore_ascii_case(&self.my_name) {
+                "Your name has already been added.".into()
+            } else {
+                format!("\"{}\" has already been added.", val)
+            });
+            return;
+        }
+
+        self.members.push(val);
+        self.input = String::new();
+        self.step = if idx + 1 < self.member_count {
+            Step::MemberName(idx + 1)
+        } else {
+            Step::Confirm
+        };
     }
 
     fn to_config(&self) -> Config {
@@ -149,13 +173,6 @@ impl SetupState {
             },
         }
     }
-
-    /// Window height for the confirm screen, scaled to member count.
-    fn confirm_win_h(&self) -> i32 {
-        let line_h = FONT_SIZE as i32 + 6;
-        let n_lines = 4 + self.members.len() as i32; // title + group + you + members header + N names + action
-        PAD + line_h * n_lines + PAD * 2
-    }
 }
 
 pub fn run(
@@ -165,72 +182,42 @@ pub fn run(
     config_path: &Path,
     prefill: Option<&Config>,
 ) -> Config {
+    let mut state = prefill.map(SetupState::from_config).unwrap_or_default();
+    let mut last_step = std::mem::discriminant(&state.step);
+
     rl.set_window_size(WIN_W, INPUT_WIN_H);
 
-    let mut state = prefill.map(SetupState::from_config).unwrap_or_default();
-
     loop {
-        match state.step {
-            Step::Confirm => {
-                // Resize window to fit however many members we have.
-                rl.set_window_size(WIN_W, state.confirm_win_h());
-
-                if rl.is_key_pressed(KeyboardKey::KEY_Y) {
-                    let config = state.to_config();
-                    if let Err(e) = write_config(config_path, &config) {
-                        eprintln!("Error: could not write config: {e}");
-                        std::process::exit(1);
-                    }
-                    return config;
-                }
-                if rl.is_key_pressed(KeyboardKey::KEY_N) {
-                    rl.set_window_size(WIN_W, INPUT_WIN_H);
-                    state = prefill.map(SetupState::from_config).unwrap_or_default();
-                }
-            }
-            _ => {
-                rl.set_window_size(WIN_W, INPUT_WIN_H);
-
-                while let Some(c) = rl.get_char_pressed() {
-                    if !c.is_control() {
-                        if state.selected_all {
-                            state.input = c.to_string();
-                            state.selected_all = false;
-                        } else {
-                            state.input.push(c);
-                        }
-                    }
-                }
-
-                match super::clipboard::handle(rl, &state.input, |c| !c.is_control()) {
-                    ClipboardAction::Replace(s) => {
-                        state.input = s;
-                        state.selected_all = false;
-                    }
-                    ClipboardAction::SelectAll => {
-                        state.selected_all = true;
-                    }
-                    ClipboardAction::None => {}
-                }
-
-                if rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE) || rl.is_key_pressed_repeat(KeyboardKey::KEY_BACKSPACE)
-                {
-                    if state.selected_all {
-                        state.input.clear();
-                        state.selected_all = false;
-                    } else {
-                        state.input.pop();
-                    }
-                }
-
-                if rl.is_key_pressed(KeyboardKey::KEY_ENTER) {
-                    state.advance();
-                }
-            }
+        // Resize only on step transitions.
+        let current_step = std::mem::discriminant(&state.step);
+        if current_step != last_step {
+            let h = if state.step == Step::Confirm {
+                state.confirm_win_h()
+            } else {
+                INPUT_WIN_H
+            };
+            rl.set_window_size(WIN_W, h);
+            last_step = current_step;
         }
 
         if rl.window_should_close() {
             std::process::exit(0);
+        }
+
+        if state.step == Step::Confirm {
+            if rl.is_key_pressed(KeyboardKey::KEY_Y) {
+                let config = state.to_config();
+                if let Err(e) = write_config(config_path, &config) {
+                    eprintln!("Error: could not write config: {e}");
+                    std::process::exit(1);
+                }
+                return config;
+            }
+            if rl.is_key_pressed(KeyboardKey::KEY_N) {
+                state = prefill.map(SetupState::from_config).unwrap_or_default();
+            }
+        } else {
+            handle_text_input(rl, &mut state);
         }
 
         let mut d = rl.begin_drawing(thread);
@@ -243,27 +230,45 @@ pub fn run(
     }
 }
 
-fn txt(d: &mut RaylibDrawHandle, fonts: &Fonts, text: &str, x: i32, y: i32, size: f32, color: Color) {
-    d.draw_text_ex(
-        fonts.pick(text),
-        text,
-        Vector2 {
-            x: x as f32,
-            y: y as f32,
-        },
-        size,
-        1.0,
-        color,
-    );
-}
+fn handle_text_input(rl: &mut RaylibHandle, state: &mut SetupState) {
+    while let Some(c) = rl.get_char_pressed() {
+        if c.is_control() {
+            continue;
+        }
+        if state.selected_all {
+            state.input.clear();
+            state.selected_all = false;
+        }
+        state.input.push(c);
+    }
 
-fn measure(fonts: &Fonts, text: &str, size: f32) -> i32 {
-    fonts.pick(text).measure_text(text, size, 1.0).x as i32
+    match clipboard::handle(rl, &state.input, |c| !c.is_control()) {
+        ClipboardAction::Replace(s) => {
+            state.input = s;
+            state.selected_all = false;
+        }
+        ClipboardAction::SelectAll => {
+            state.selected_all = true;
+        }
+        ClipboardAction::Noop => {}
+    }
+
+    if rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE) || rl.is_key_pressed_repeat(KeyboardKey::KEY_BACKSPACE) {
+        if state.selected_all {
+            state.input.clear();
+            state.selected_all = false;
+        } else {
+            state.input.pop();
+        }
+    }
+
+    if rl.is_key_pressed(KeyboardKey::KEY_ENTER) {
+        state.advance();
+    }
 }
 
 fn draw_input(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &SetupState) {
     let (title, sub) = step_labels(&state.step);
-
     txt(d, fonts, title, PAD, PAD, FONT_SIZE + 2.0, FG);
     txt(d, fonts, sub, PAD, PAD + 32, FONT_SIZE - 2.0, DIM);
 
@@ -279,10 +284,14 @@ fn draw_input(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &SetupState) {
 
     let ty = by + (INPUT_H - FONT_SIZE as i32) / 2;
 
-    // Draw selection highlight behind the text when select-all is active.
     if state.selected_all && !state.input.is_empty() {
-        let sel_w = measure(fonts, &state.input, FONT_SIZE);
-        d.draw_rectangle(PAD + 8, ty, sel_w, FONT_SIZE as i32, SEL_BG);
+        d.draw_rectangle(
+            PAD + 8,
+            ty,
+            measure(fonts, &state.input, FONT_SIZE),
+            FONT_SIZE as i32,
+            SEL_BG,
+        );
     }
 
     let (text, color) = if state.input.is_empty() {
@@ -292,10 +301,16 @@ fn draw_input(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &SetupState) {
     };
     txt(d, fonts, text, PAD + 8, ty, FONT_SIZE, color);
 
-    // Only show the blinking cursor when not in select-all mode.
     if !state.selected_all && (d.get_time() * 2.0) as i32 % 2 == 0 {
-        let cx = PAD + 8 + measure(fonts, &state.input, FONT_SIZE) + 1;
-        txt(d, fonts, "|", cx, ty, FONT_SIZE, ACCENT);
+        txt(
+            d,
+            fonts,
+            "|",
+            PAD + 8 + measure(fonts, &state.input, FONT_SIZE) + 1,
+            ty,
+            FONT_SIZE,
+            ACCENT,
+        );
     }
 
     if let Some(err) = &state.error {
@@ -319,11 +334,11 @@ fn draw_confirm(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &SetupState) {
     let line_h = FONT_SIZE as i32 + 6;
     let mut y = PAD + 36;
 
-    for (label, value, color) in [
-        ("Group:  ", state.group_name.as_str(), DIM),
-        ("You:    ", state.my_name.as_str(), DIM),
+    for (label, value) in [
+        ("Group:  ", state.group_name.as_str()),
+        ("You:    ", state.my_name.as_str()),
     ] {
-        txt(d, fonts, &format!("{label}{value}"), PAD, y, FONT_SIZE - 2.0, color);
+        txt(d, fonts, &format!("{label}{value}"), PAD, y, FONT_SIZE - 2.0, DIM);
         y += line_h;
     }
 
@@ -331,13 +346,20 @@ fn draw_confirm(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &SetupState) {
     y += line_h;
 
     for (i, name) in state.members.iter().enumerate() {
-        let is_me = name.trim().eq_ignore_ascii_case(&state.my_name);
-        let label = if is_me {
-            format!("  {}. {} (you)", i + 1, name)
+        let suffix = if name.trim().eq_ignore_ascii_case(&state.my_name) {
+            " (you)"
         } else {
-            format!("  {}. {}", i + 1, name)
+            ""
         };
-        txt(d, fonts, &label, PAD, y, FONT_SIZE - 2.0, FG);
+        txt(
+            d,
+            fonts,
+            &format!("  {}. {}{suffix}", i + 1, name),
+            PAD,
+            y,
+            FONT_SIZE - 2.0,
+            FG,
+        );
         y += line_h;
     }
 
@@ -360,6 +382,24 @@ fn step_labels(step: &Step) -> (&'static str, &'static str) {
         Step::MemberName(_) => ("Setup — Member name", "Enter this member's full name"),
         Step::Confirm => ("", ""),
     }
+}
+
+fn txt(d: &mut RaylibDrawHandle, fonts: &Fonts, text: &str, x: i32, y: i32, size: f32, color: Color) {
+    d.draw_text_ex(
+        fonts.pick(text),
+        text,
+        Vector2 {
+            x: x as f32,
+            y: y as f32,
+        },
+        size,
+        1.0,
+        color,
+    );
+}
+
+fn measure(fonts: &Fonts, text: &str, size: f32) -> i32 {
+    fonts.pick(text).measure_text(text, size, 1.0).x as i32
 }
 
 fn write_config(path: &Path, config: &Config) -> std::io::Result<()> {
