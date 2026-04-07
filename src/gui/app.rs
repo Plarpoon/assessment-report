@@ -3,6 +3,7 @@ use raylib::prelude::*;
 use crate::toml::parser::Config;
 use crate::veuros::{Assignment, TOTAL};
 
+use super::clipboard::ClipboardAction;
 use super::{Fonts, WIN_W};
 
 const FONT_SIZE: f32 = 20.0;
@@ -16,15 +17,16 @@ const BTN_H: i32 = 22;
 #[rustfmt::skip]
 mod colors {
     use raylib::prelude::Color;
-    pub const BG:      Color = Color { r: 24,  g: 24,  b: 32,  a: 255 };
-    pub const FG:      Color = Color { r: 220, g: 220, b: 220, a: 255 };
-    pub const ACCENT:  Color = Color { r: 90,  g: 160, b: 255, a: 255 };
-    pub const RED:     Color = Color { r: 220, g: 60,  b: 60,  a: 255 };
-    pub const BOX_BG:  Color = Color { r: 36,  g: 36,  b: 48,  a: 255 };
-    pub const BOX_ACT: Color = Color { r: 50,  g: 50,  b: 70,  a: 255 };
-    pub const GREEN:   Color = Color { r: 80,  g: 200, b: 120, a: 255 };
-    pub const DIM:     Color = Color { r: 100, g: 100, b: 120, a: 255 };
-    pub const BTN_BG:  Color = Color { r: 40,  g: 40,  b: 55,  a: 255 };
+    pub const BG:       Color = Color { r: 24,  g: 24,  b: 32,  a: 255 };
+    pub const FG:       Color = Color { r: 220, g: 220, b: 220, a: 255 };
+    pub const ACCENT:   Color = Color { r: 90,  g: 160, b: 255, a: 255 };
+    pub const RED:      Color = Color { r: 220, g: 60,  b: 60,  a: 255 };
+    pub const BOX_BG:   Color = Color { r: 36,  g: 36,  b: 48,  a: 255 };
+    pub const BOX_ACT:  Color = Color { r: 50,  g: 50,  b: 70,  a: 255 };
+    pub const GREEN:    Color = Color { r: 80,  g: 200, b: 120, a: 255 };
+    pub const DIM:      Color = Color { r: 100, g: 100, b: 120, a: 255 };
+    pub const BTN_BG:   Color = Color { r: 40,  g: 40,  b: 55,  a: 255 };
+    pub const SEL_BG:   Color = Color { r: 90,  g: 160, b: 255, a: 80  };
 }
 use colors::*;
 
@@ -43,6 +45,7 @@ struct State<'a> {
     peers: Vec<&'a str>,
     buffers: Vec<String>,
     active: usize,
+    selected_all: bool,
     screen: Screen,
 }
 
@@ -53,6 +56,7 @@ impl<'a> State<'a> {
             peers,
             buffers: vec![String::new(); len],
             active: 0,
+            selected_all: false,
             screen: Screen::Assign,
         }
     }
@@ -120,22 +124,48 @@ fn handle_input(rl: &mut RaylibHandle, state: &mut State, win_h: i32) -> Option<
                     return Some(Outcome::EditConfig);
                 }
                 if let Some(i) = (0..state.peers.len()).find(|&i| hit(pos, field_rect(i))) {
+                    if state.active != i {
+                        state.selected_all = false;
+                    }
                     state.active = i;
                 }
             }
 
             if rl.is_key_pressed(KeyboardKey::KEY_TAB) {
                 state.active = (state.active + 1) % state.peers.len();
+                state.selected_all = false;
             }
 
+            // A digit while select-all is active replaces the whole buffer.
             while let Some(c) = rl.get_char_pressed() {
                 if c.is_ascii_digit() {
-                    state.buffers[state.active].push(c);
+                    if state.selected_all {
+                        state.buffers[state.active] = c.to_string();
+                        state.selected_all = false;
+                    } else {
+                        state.buffers[state.active].push(c);
+                    }
                 }
             }
 
+            match super::clipboard::handle(rl, &state.buffers[state.active], |c| c.is_ascii_digit()) {
+                ClipboardAction::Replace(s) => {
+                    state.buffers[state.active] = s;
+                    state.selected_all = false;
+                }
+                ClipboardAction::SelectAll => {
+                    state.selected_all = true;
+                }
+                ClipboardAction::None => {}
+            }
+
             if rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE) || rl.is_key_pressed_repeat(KeyboardKey::KEY_BACKSPACE) {
-                state.buffers[state.active].pop();
+                if state.selected_all {
+                    state.buffers[state.active].clear();
+                    state.selected_all = false;
+                } else {
+                    state.buffers[state.active].pop();
+                }
             }
 
             if rl.is_key_pressed(KeyboardKey::KEY_ENTER) && state.remaining() == 0 {
@@ -202,9 +232,16 @@ fn draw_row(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &State, i: usize, na
     } else {
         (val.as_str(), FG)
     };
+
+    // Draw selection highlight behind the text when select-all is active.
+    if is_active && state.selected_all && !val.is_empty() {
+        let sel_w = measure(fonts, val, FONT_SIZE);
+        d.draw_rectangle(tx, ty, sel_w, FONT_SIZE as i32, SEL_BG);
+    }
+
     txt(d, fonts, val_text, tx, ty, FONT_SIZE, val_color);
 
-    if is_active && (d.get_time() * 2.0) as i32 % 2 == 0 {
+    if is_active && !state.selected_all && (d.get_time() * 2.0) as i32 % 2 == 0 {
         txt(
             d,
             fonts,
@@ -217,7 +254,6 @@ fn draw_row(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &State, i: usize, na
     }
 }
 
-/// Draws text using whichever font face covers the string's script.
 fn txt(d: &mut RaylibDrawHandle, fonts: &Fonts, text: &str, x: i32, y: i32, size: f32, color: Color) {
     d.draw_text_ex(
         fonts.pick(text),
@@ -232,7 +268,6 @@ fn txt(d: &mut RaylibDrawHandle, fonts: &Fonts, text: &str, x: i32, y: i32, size
     );
 }
 
-/// Measures text width using whichever font face covers the string's script.
 fn measure(fonts: &Fonts, text: &str, size: f32) -> i32 {
     fonts.pick(text).measure_text(text, size, 1.0).x as i32
 }

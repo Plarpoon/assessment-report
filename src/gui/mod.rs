@@ -1,4 +1,5 @@
 mod app;
+pub mod clipboard;
 mod setup;
 
 use std::path::PathBuf;

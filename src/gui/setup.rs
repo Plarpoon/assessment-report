@@ -4,13 +4,16 @@ use raylib::prelude::*;
 
 use crate::toml::parser::{Config, General, Members};
 
+use super::clipboard::ClipboardAction;
 use super::{Fonts, WIN_W};
 
 const FONT_SIZE: f32 = 20.0;
 const PAD: i32 = 24;
 const INPUT_W: i32 = 360;
 const INPUT_H: i32 = 36;
-const WIN_H: i32 = 260;
+
+// Height for input steps (fixed — only one field visible at a time).
+const INPUT_WIN_H: i32 = 260;
 
 #[rustfmt::skip]
 mod colors {
@@ -22,6 +25,7 @@ mod colors {
     pub const DIM:     Color = Color { r: 100, g: 100, b: 120, a: 255 };
     pub const RED:     Color = Color { r: 220, g: 60,  b: 60,  a: 255 };
     pub const GREEN:   Color = Color { r: 80,  g: 200, b: 120, a: 255 };
+    pub const SEL_BG:  Color = Color { r: 90,  g: 160, b: 255, a: 80  };
 }
 use colors::*;
 
@@ -41,6 +45,7 @@ struct SetupState {
     member_count: usize,
     members: Vec<String>,
     input: String,
+    selected_all: bool,
     error: Option<String>,
 }
 
@@ -53,6 +58,7 @@ impl Default for SetupState {
             member_count: 0,
             members: Vec::new(),
             input: String::new(),
+            selected_all: false,
             error: None,
         }
     }
@@ -72,6 +78,7 @@ impl SetupState {
 
     fn advance(&mut self) {
         self.error = None;
+        self.selected_all = false;
         match &self.step {
             Step::GroupName => {
                 let val = self.input.trim().to_string();
@@ -142,6 +149,13 @@ impl SetupState {
             },
         }
     }
+
+    /// Window height for the confirm screen, scaled to member count.
+    fn confirm_win_h(&self) -> i32 {
+        let line_h = FONT_SIZE as i32 + 6;
+        let n_lines = 4 + self.members.len() as i32; // title + group + you + members header + N names + action
+        PAD + line_h * n_lines + PAD * 2
+    }
 }
 
 pub fn run(
@@ -151,13 +165,16 @@ pub fn run(
     config_path: &Path,
     prefill: Option<&Config>,
 ) -> Config {
-    rl.set_window_size(WIN_W, WIN_H);
+    rl.set_window_size(WIN_W, INPUT_WIN_H);
 
     let mut state = prefill.map(SetupState::from_config).unwrap_or_default();
 
     loop {
         match state.step {
             Step::Confirm => {
+                // Resize window to fit however many members we have.
+                rl.set_window_size(WIN_W, state.confirm_win_h());
+
                 if rl.is_key_pressed(KeyboardKey::KEY_Y) {
                     let config = state.to_config();
                     if let Err(e) = write_config(config_path, &config) {
@@ -167,19 +184,45 @@ pub fn run(
                     return config;
                 }
                 if rl.is_key_pressed(KeyboardKey::KEY_N) {
+                    rl.set_window_size(WIN_W, INPUT_WIN_H);
                     state = prefill.map(SetupState::from_config).unwrap_or_default();
                 }
             }
             _ => {
+                rl.set_window_size(WIN_W, INPUT_WIN_H);
+
                 while let Some(c) = rl.get_char_pressed() {
                     if !c.is_control() {
-                        state.input.push(c);
+                        if state.selected_all {
+                            state.input = c.to_string();
+                            state.selected_all = false;
+                        } else {
+                            state.input.push(c);
+                        }
                     }
                 }
+
+                match super::clipboard::handle(rl, &state.input, |c| !c.is_control()) {
+                    ClipboardAction::Replace(s) => {
+                        state.input = s;
+                        state.selected_all = false;
+                    }
+                    ClipboardAction::SelectAll => {
+                        state.selected_all = true;
+                    }
+                    ClipboardAction::None => {}
+                }
+
                 if rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE) || rl.is_key_pressed_repeat(KeyboardKey::KEY_BACKSPACE)
                 {
-                    state.input.pop();
+                    if state.selected_all {
+                        state.input.clear();
+                        state.selected_all = false;
+                    } else {
+                        state.input.pop();
+                    }
                 }
+
                 if rl.is_key_pressed(KeyboardKey::KEY_ENTER) {
                     state.advance();
                 }
@@ -235,6 +278,13 @@ fn draw_input(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &SetupState) {
     d.draw_rectangle_lines_ex(rect, 1.5, ACCENT);
 
     let ty = by + (INPUT_H - FONT_SIZE as i32) / 2;
+
+    // Draw selection highlight behind the text when select-all is active.
+    if state.selected_all && !state.input.is_empty() {
+        let sel_w = measure(fonts, &state.input, FONT_SIZE);
+        d.draw_rectangle(PAD + 8, ty, sel_w, FONT_SIZE as i32, SEL_BG);
+    }
+
     let (text, color) = if state.input.is_empty() {
         ("type and press Enter", DIM)
     } else {
@@ -242,7 +292,8 @@ fn draw_input(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &SetupState) {
     };
     txt(d, fonts, text, PAD + 8, ty, FONT_SIZE, color);
 
-    if (d.get_time() * 2.0) as i32 % 2 == 0 {
+    // Only show the blinking cursor when not in select-all mode.
+    if !state.selected_all && (d.get_time() * 2.0) as i32 % 2 == 0 {
         let cx = PAD + 8 + measure(fonts, &state.input, FONT_SIZE) + 1;
         txt(d, fonts, "|", cx, ty, FONT_SIZE, ACCENT);
     }
@@ -256,7 +307,7 @@ fn draw_input(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &SetupState) {
         fonts,
         "Press Enter to continue",
         PAD,
-        WIN_H - PAD - FONT_SIZE as i32,
+        INPUT_WIN_H - PAD - FONT_SIZE as i32,
         FONT_SIZE - 4.0,
         DIM,
     );
