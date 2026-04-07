@@ -4,7 +4,7 @@ use raylib::prelude::*;
 
 use crate::toml::parser::{Config, General, Members};
 
-use super::WIN_W;
+use super::{Fonts, WIN_W};
 
 const FONT_SIZE: f32 = 20.0;
 const PAD: i32 = 24;
@@ -147,7 +147,7 @@ impl SetupState {
 pub fn run(
     rl: &mut RaylibHandle,
     thread: &RaylibThread,
-    font: &Font,
+    fonts: &Fonts,
     config_path: &Path,
     prefill: Option<&Config>,
 ) -> Config {
@@ -194,15 +194,15 @@ pub fn run(
         d.clear_background(BG);
 
         match &state.step {
-            Step::Confirm => draw_confirm(&mut d, font, &state),
-            _ => draw_input(&mut d, font, &state),
+            Step::Confirm => draw_confirm(&mut d, fonts, &state),
+            _ => draw_input(&mut d, fonts, &state),
         }
     }
 }
 
-fn txt(d: &mut RaylibDrawHandle, font: &Font, text: &str, x: i32, y: i32, size: f32, color: Color) {
+fn txt(d: &mut RaylibDrawHandle, fonts: &Fonts, text: &str, x: i32, y: i32, size: f32, color: Color) {
     d.draw_text_ex(
-        font,
+        fonts.pick(text),
         text,
         Vector2 {
             x: x as f32,
@@ -214,15 +214,15 @@ fn txt(d: &mut RaylibDrawHandle, font: &Font, text: &str, x: i32, y: i32, size: 
     );
 }
 
-fn measure(font: &Font, text: &str, size: f32) -> i32 {
-    font.measure_text(text, size, 1.0).x as i32
+fn measure(fonts: &Fonts, text: &str, size: f32) -> i32 {
+    fonts.pick(text).measure_text(text, size, 1.0).x as i32
 }
 
-fn draw_input(d: &mut RaylibDrawHandle, font: &Font, state: &SetupState) {
+fn draw_input(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &SetupState) {
     let (title, sub) = step_labels(&state.step);
 
-    txt(d, font, title, PAD, PAD, FONT_SIZE + 2.0, FG);
-    txt(d, font, sub, PAD, PAD + 32, FONT_SIZE - 2.0, DIM);
+    txt(d, fonts, title, PAD, PAD, FONT_SIZE + 2.0, FG);
+    txt(d, fonts, sub, PAD, PAD + 32, FONT_SIZE - 2.0, DIM);
 
     let by = PAD + 70;
     let rect = Rectangle {
@@ -240,20 +240,20 @@ fn draw_input(d: &mut RaylibDrawHandle, font: &Font, state: &SetupState) {
     } else {
         (state.input.as_str(), FG)
     };
-    txt(d, font, text, PAD + 8, ty, FONT_SIZE, color);
+    txt(d, fonts, text, PAD + 8, ty, FONT_SIZE, color);
 
     if (d.get_time() * 2.0) as i32 % 2 == 0 {
-        let cx = PAD + 8 + measure(font, &state.input, FONT_SIZE) + 1;
-        txt(d, font, "|", cx, ty, FONT_SIZE, ACCENT);
+        let cx = PAD + 8 + measure(fonts, &state.input, FONT_SIZE) + 1;
+        txt(d, fonts, "|", cx, ty, FONT_SIZE, ACCENT);
     }
 
     if let Some(err) = &state.error {
-        txt(d, font, err, PAD, by + INPUT_H + 12, FONT_SIZE - 2.0, RED);
+        txt(d, fonts, err, PAD, by + INPUT_H + 12, FONT_SIZE - 2.0, RED);
     }
 
     txt(
         d,
-        font,
+        fonts,
         "Press Enter to continue",
         PAD,
         WIN_H - PAD - FONT_SIZE as i32,
@@ -262,8 +262,8 @@ fn draw_input(d: &mut RaylibDrawHandle, font: &Font, state: &SetupState) {
     );
 }
 
-fn draw_confirm(d: &mut RaylibDrawHandle, font: &Font, state: &SetupState) {
-    txt(d, font, "Confirm config", PAD, PAD, FONT_SIZE + 2.0, FG);
+fn draw_confirm(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &SetupState) {
+    txt(d, fonts, "Confirm config", PAD, PAD, FONT_SIZE + 2.0, FG);
 
     let line_h = FONT_SIZE as i32 + 6;
     let mut y = PAD + 36;
@@ -272,11 +272,11 @@ fn draw_confirm(d: &mut RaylibDrawHandle, font: &Font, state: &SetupState) {
         ("Group:  ", state.group_name.as_str(), DIM),
         ("You:    ", state.my_name.as_str(), DIM),
     ] {
-        txt(d, font, &format!("{label}{value}"), PAD, y, FONT_SIZE - 2.0, color);
+        txt(d, fonts, &format!("{label}{value}"), PAD, y, FONT_SIZE - 2.0, color);
         y += line_h;
     }
 
-    txt(d, font, "Members:", PAD, y, FONT_SIZE - 2.0, DIM);
+    txt(d, fonts, "Members:", PAD, y, FONT_SIZE - 2.0, DIM);
     y += line_h;
 
     for (i, name) in state.members.iter().enumerate() {
@@ -286,13 +286,13 @@ fn draw_confirm(d: &mut RaylibDrawHandle, font: &Font, state: &SetupState) {
         } else {
             format!("  {}. {}", i + 1, name)
         };
-        txt(d, font, &label, PAD, y, FONT_SIZE - 2.0, FG);
+        txt(d, fonts, &label, PAD, y, FONT_SIZE - 2.0, FG);
         y += line_h;
     }
 
     txt(
         d,
-        font,
+        fonts,
         "[Y] Save and continue   [N] Start over",
         PAD,
         y + 6,

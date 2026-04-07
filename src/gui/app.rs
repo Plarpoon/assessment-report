@@ -3,7 +3,7 @@ use raylib::prelude::*;
 use crate::toml::parser::Config;
 use crate::veuros::{Assignment, TOTAL};
 
-use super::WIN_W;
+use super::{Fonts, WIN_W};
 
 const FONT_SIZE: f32 = 20.0;
 const PAD: i32 = 24;
@@ -74,7 +74,7 @@ impl<'a> State<'a> {
     }
 }
 
-pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, font: &Font, config: &Config) -> Outcome {
+pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, fonts: &Fonts, config: &Config) -> Outcome {
     let my_name = config.general.my_name.trim();
 
     let peers: Vec<&str> = config
@@ -104,9 +104,9 @@ pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, font: &Font, config: &C
         d.clear_background(BG);
 
         if state.screen == Screen::Confirm {
-            draw_confirm(&mut d, font, win_h);
+            draw_confirm(&mut d, fonts, win_h);
         } else {
-            draw_assign(&mut d, font, &state, win_h);
+            draw_assign(&mut d, fonts, &state, win_h);
         }
     }
 }
@@ -154,8 +154,8 @@ fn handle_input(rl: &mut RaylibHandle, state: &mut State, win_h: i32) -> Option<
     None
 }
 
-fn draw_assign(d: &mut RaylibDrawHandle, font: &Font, state: &State, win_h: i32) {
-    txt(d, font, "Assign 50 vEuros", PAD, PAD, FONT_SIZE, FG);
+fn draw_assign(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &State, win_h: i32) {
+    txt(d, fonts, "Assign 50 vEuros", PAD, PAD, FONT_SIZE, FG);
 
     let remaining = state.remaining();
     let rem_color = match remaining.cmp(&0) {
@@ -164,11 +164,11 @@ fn draw_assign(d: &mut RaylibDrawHandle, font: &Font, state: &State, win_h: i32)
         std::cmp::Ordering::Greater => ACCENT,
     };
     let rem_text = format!("Remaining: {remaining}");
-    let tw = measure(font, &rem_text, FONT_SIZE);
-    txt(d, font, &rem_text, WIN_W - PAD - tw, PAD, FONT_SIZE, rem_color);
+    let tw = measure(fonts, &rem_text, FONT_SIZE);
+    txt(d, fonts, &rem_text, WIN_W - PAD - tw, PAD, FONT_SIZE, rem_color);
 
     for (i, &name) in state.peers.iter().enumerate() {
-        draw_row(d, font, state, i, name);
+        draw_row(d, fonts, state, i, name);
     }
 
     let hint = match remaining.cmp(&0) {
@@ -177,12 +177,12 @@ fn draw_assign(d: &mut RaylibDrawHandle, font: &Font, state: &State, win_h: i32)
         std::cmp::Ordering::Greater => "Click or Tab to select a field",
     };
     let hint_y = PAD * 3 + state.peers.len() as i32 * ROW_H + PAD;
-    txt(d, font, hint, PAD, hint_y, FONT_SIZE - 2.0, DIM);
+    txt(d, fonts, hint, PAD, hint_y, FONT_SIZE - 2.0, DIM);
 
-    draw_edit_btn(d, font, win_h);
+    draw_edit_btn(d, fonts, win_h);
 }
 
-fn draw_row(d: &mut RaylibDrawHandle, font: &Font, state: &State, i: usize, name: &str) {
+fn draw_row(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &State, i: usize, name: &str) {
     let y = PAD * 3 + i as i32 * ROW_H;
     let is_active = state.active == i;
     let r = field_rect(i);
@@ -190,7 +190,7 @@ fn draw_row(d: &mut RaylibDrawHandle, font: &Font, state: &State, i: usize, name
     let tx = r.x as i32 + 8;
     let ty = r.y as i32 + (BOX_H - FONT_SIZE as i32) / 2;
 
-    txt(d, font, name, PAD, y + (BOX_H - FONT_SIZE as i32) / 2, FONT_SIZE, FG);
+    txt(d, fonts, name, PAD, y + (BOX_H - FONT_SIZE as i32) / 2, FONT_SIZE, FG);
 
     d.draw_rectangle_rec(r, if is_active { BOX_ACT } else { BOX_BG });
     d.draw_rectangle_lines_ex(r, 1.5, if is_active { ACCENT } else { DIM });
@@ -202,16 +202,25 @@ fn draw_row(d: &mut RaylibDrawHandle, font: &Font, state: &State, i: usize, name
     } else {
         (val.as_str(), FG)
     };
-    txt(d, font, val_text, tx, ty, FONT_SIZE, val_color);
+    txt(d, fonts, val_text, tx, ty, FONT_SIZE, val_color);
 
     if is_active && (d.get_time() * 2.0) as i32 % 2 == 0 {
-        txt(d, font, "|", tx + measure(font, val, FONT_SIZE), ty, FONT_SIZE, ACCENT);
+        txt(
+            d,
+            fonts,
+            "|",
+            tx + measure(fonts, val, FONT_SIZE),
+            ty,
+            FONT_SIZE,
+            ACCENT,
+        );
     }
 }
 
-fn txt(d: &mut RaylibDrawHandle, font: &Font, text: &str, x: i32, y: i32, size: f32, color: Color) {
+/// Draws text using whichever font face covers the string's script.
+fn txt(d: &mut RaylibDrawHandle, fonts: &Fonts, text: &str, x: i32, y: i32, size: f32, color: Color) {
     d.draw_text_ex(
-        font,
+        fonts.pick(text),
         text,
         Vector2 {
             x: x as f32,
@@ -223,8 +232,9 @@ fn txt(d: &mut RaylibDrawHandle, font: &Font, text: &str, x: i32, y: i32, size: 
     );
 }
 
-fn measure(font: &Font, text: &str, size: f32) -> i32 {
-    font.measure_text(text, size, 1.0).x as i32
+/// Measures text width using whichever font face covers the string's script.
+fn measure(fonts: &Fonts, text: &str, size: f32) -> i32 {
+    fonts.pick(text).measure_text(text, size, 1.0).x as i32
 }
 
 fn hit(pos: Vector2, r: Rectangle) -> bool {
@@ -249,14 +259,14 @@ fn edit_btn_rect(win_h: i32) -> Rectangle {
     }
 }
 
-fn draw_edit_btn(d: &mut RaylibDrawHandle, font: &Font, win_h: i32) {
+fn draw_edit_btn(d: &mut RaylibDrawHandle, fonts: &Fonts, win_h: i32) {
     let r = edit_btn_rect(win_h);
-    let lw = measure(font, "Edit config", FONT_SIZE - 6.0);
+    let lw = measure(fonts, "Edit config", FONT_SIZE - 6.0);
     d.draw_rectangle_rec(r, BTN_BG);
     d.draw_rectangle_lines_ex(r, 1.0, DIM);
     txt(
         d,
-        font,
+        fonts,
         "Edit config",
         r.x as i32 + (BTN_W - lw) / 2,
         r.y as i32 + (BTN_H - (FONT_SIZE as i32 - 6)) / 2,
@@ -265,23 +275,23 @@ fn draw_edit_btn(d: &mut RaylibDrawHandle, font: &Font, win_h: i32) {
     );
 }
 
-fn draw_confirm(d: &mut RaylibDrawHandle, font: &Font, win_h: i32) {
+fn draw_confirm(d: &mut RaylibDrawHandle, fonts: &Fonts, win_h: i32) {
     let msg = "All 50 vEuros assigned.";
     let sub = "Confirm and write file?  [Y] yes   [N] back";
     txt(
         d,
-        font,
+        fonts,
         msg,
-        (WIN_W - measure(font, msg, FONT_SIZE + 4.0)) / 2,
+        (WIN_W - measure(fonts, msg, FONT_SIZE + 4.0)) / 2,
         win_h / 2 - 30,
         FONT_SIZE + 4.0,
         Color::WHITE,
     );
     txt(
         d,
-        font,
+        fonts,
         sub,
-        (WIN_W - measure(font, sub, FONT_SIZE)) / 2,
+        (WIN_W - measure(fonts, sub, FONT_SIZE)) / 2,
         win_h / 2 + 10,
         FONT_SIZE,
         DIM,
