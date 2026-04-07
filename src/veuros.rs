@@ -20,6 +20,10 @@ pub fn run(config: &Config) -> Vec<Assignment> {
         .filter(|s| !s.eq_ignore_ascii_case(my_name))
         .collect();
 
+    if peers.is_empty() {
+        return vec![];
+    }
+
     loop {
         let assignments = collect_round(&peers);
         let total: u32 = assignments.iter().map(|a| a.amount).sum();

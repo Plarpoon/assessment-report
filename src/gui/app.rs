@@ -89,12 +89,51 @@ pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, fonts: &Fonts, config: 
         .filter(|s| !s.eq_ignore_ascii_case(my_name))
         .collect();
 
+    // Solo operator: no peers to assign to — show a dedicated confirm screen.
+    if peers.is_empty() {
+        let win_h = 160;
+        rl.set_window_size(WIN_W, win_h);
+        loop {
+            if rl.is_key_pressed(KeyboardKey::KEY_Y) {
+                return Outcome::Done(vec![]);
+            }
+            if rl.is_key_pressed(KeyboardKey::KEY_N) {
+                return Outcome::EditConfig;
+            }
+            if rl.window_should_close() {
+                std::process::exit(0);
+            }
+
+            let mut d = rl.begin_drawing(thread);
+            d.clear_background(BG);
+            let msg = "You are the only member.";
+            let sub = "Write file with only ME, -?  [Y] yes   [N] edit config";
+            txt(
+                &mut d,
+                fonts,
+                msg,
+                (WIN_W - measure(fonts, msg, FONT_SIZE + 2.0)) / 2,
+                win_h / 2 - 24,
+                FONT_SIZE + 2.0,
+                FG,
+            );
+            txt(
+                &mut d,
+                fonts,
+                sub,
+                (WIN_W - measure(fonts, sub, FONT_SIZE - 2.0)) / 2,
+                win_h / 2 + 12,
+                FONT_SIZE - 2.0,
+                DIM,
+            );
+        }
+    }
+
     // Window height grows with the number of peers: header + rows + hint row.
     let win_h = PAD * 3 + ROW_H * peers.len() as i32 + PAD * 2 + BOX_H + PAD;
     rl.set_window_size(WIN_W, win_h);
 
     let mut state = State::new(peers);
-
     loop {
         if let Some(outcome) = handle_input(rl, &mut state, win_h) {
             return outcome;
