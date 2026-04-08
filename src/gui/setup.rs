@@ -4,7 +4,7 @@ use raylib::prelude::*;
 
 use crate::toml::parser::{Config, General, Members};
 
-use super::clipboard::{self, ClipboardAction};
+use super::textfield::TextField;
 use super::{Fonts, WIN_W};
 
 const FONT_SIZE: f32 = 20.0;
@@ -42,8 +42,7 @@ struct SetupState {
     my_name: String,
     member_count: usize,
     members: Vec<String>,
-    input: String,
-    selected_all: bool,
+    field: TextField,
     error: Option<String>,
 }
 
@@ -55,8 +54,7 @@ impl Default for SetupState {
             my_name: String::new(),
             member_count: 0,
             members: Vec::new(),
-            input: String::new(),
-            selected_all: false,
+            field: TextField::new(|c| !c.is_control()),
             error: None,
         }
     }
@@ -69,21 +67,18 @@ impl SetupState {
             my_name: c.general.my_name.clone(),
             member_count: c.members.students.len(),
             members: c.members.students.clone(),
-            input: c.general.group_name.clone(),
+            field: TextField::with_text(c.general.group_name.clone(), |c| !c.is_control()),
             ..Self::default()
         }
     }
 
     fn confirm_win_h(&self) -> i32 {
         let line_h = FONT_SIZE as i32 + 6;
-        let n_lines = 4 + self.members.len() as i32;
-        PAD + line_h * n_lines + PAD * 2
+        PAD + line_h * (4 + self.members.len() as i32) + PAD * 2
     }
 
     fn advance(&mut self) {
         self.error = None;
-        self.selected_all = false;
-
         match &self.step {
             Step::GroupName => self.advance_group_name(),
             Step::MyName => self.advance_my_name(),
@@ -93,12 +88,8 @@ impl SetupState {
         }
     }
 
-    fn trimmed_input(&self) -> String {
-        self.input.trim().to_string()
-    }
-
     fn require_non_empty(&mut self, err: &str) -> Option<String> {
-        let val = self.trimmed_input();
+        let val = self.field.text.trim().to_string();
         if val.is_empty() {
             self.error = Some(err.into());
             None
@@ -112,7 +103,7 @@ impl SetupState {
             return;
         };
         self.group_name = val;
-        self.input = self.my_name.clone();
+        self.field.set_text(self.my_name.clone());
         self.step = Step::MyName;
     }
 
@@ -122,15 +113,15 @@ impl SetupState {
         };
         self.my_name = val.clone();
         self.members = vec![val];
-        self.input = String::new();
+        self.field.clear();
         self.step = Step::MemberCount;
     }
 
     fn advance_member_count(&mut self) {
-        match self.input.trim().parse::<usize>() {
+        match self.field.text.trim().parse::<usize>() {
             Ok(n) if (1..=7).contains(&n) => {
                 self.member_count = n;
-                self.input = String::new();
+                self.field.clear();
                 self.step = if n == 1 { Step::Confirm } else { Step::MemberName(1) };
             }
             Ok(_) => self.error = Some("Enter a number between 1 and 7.".into()),
@@ -142,9 +133,7 @@ impl SetupState {
         let Some(val) = self.require_non_empty("Name cannot be empty.") else {
             return;
         };
-
-        let is_dup = self.members.iter().any(|m| m.trim().eq_ignore_ascii_case(&val));
-        if is_dup {
+        if self.members.iter().any(|m| m.trim().eq_ignore_ascii_case(&val)) {
             self.error = Some(if val.trim().eq_ignore_ascii_case(&self.my_name) {
                 "Your name has already been added.".into()
             } else {
@@ -152,9 +141,8 @@ impl SetupState {
             });
             return;
         }
-
         self.members.push(val);
-        self.input = String::new();
+        self.field.clear();
         self.step = if idx + 1 < self.member_count {
             Step::MemberName(idx + 1)
         } else {
@@ -188,16 +176,15 @@ pub fn run(
     rl.set_window_size(WIN_W, INPUT_WIN_H);
 
     loop {
-        // Resize only on step transitions.
-        let current_step = std::mem::discriminant(&state.step);
-        if current_step != last_step {
+        let current = std::mem::discriminant(&state.step);
+        if current != last_step {
             let h = if state.step == Step::Confirm {
                 state.confirm_win_h()
             } else {
                 INPUT_WIN_H
             };
             rl.set_window_size(WIN_W, h);
-            last_step = current_step;
+            last_step = current;
         }
 
         if rl.window_should_close() {
@@ -217,7 +204,10 @@ pub fn run(
                 state = prefill.map(SetupState::from_config).unwrap_or_default();
             }
         } else {
-            handle_text_input(rl, &mut state);
+            state.field.handle_input(rl);
+            if rl.is_key_pressed(KeyboardKey::KEY_ENTER) {
+                state.advance();
+            }
         }
 
         let mut d = rl.begin_drawing(thread);
@@ -227,43 +217,6 @@ pub fn run(
             Step::Confirm => draw_confirm(&mut d, fonts, &state),
             _ => draw_input(&mut d, fonts, &state),
         }
-    }
-}
-
-fn handle_text_input(rl: &mut RaylibHandle, state: &mut SetupState) {
-    while let Some(c) = rl.get_char_pressed() {
-        if c.is_control() {
-            continue;
-        }
-        if state.selected_all {
-            state.input.clear();
-            state.selected_all = false;
-        }
-        state.input.push(c);
-    }
-
-    match clipboard::handle(rl, &state.input, |c| !c.is_control()) {
-        ClipboardAction::Replace(s) => {
-            state.input = s;
-            state.selected_all = false;
-        }
-        ClipboardAction::SelectAll => {
-            state.selected_all = true;
-        }
-        ClipboardAction::Noop => {}
-    }
-
-    if rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE) || rl.is_key_pressed_repeat(KeyboardKey::KEY_BACKSPACE) {
-        if state.selected_all {
-            state.input.clear();
-            state.selected_all = false;
-        } else {
-            state.input.pop();
-        }
-    }
-
-    if rl.is_key_pressed(KeyboardKey::KEY_ENTER) {
-        state.advance();
     }
 }
 
@@ -282,31 +235,26 @@ fn draw_input(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &SetupState) {
     d.draw_rectangle_rec(rect, BOX_ACT);
     d.draw_rectangle_lines_ex(rect, 1.5, ACCENT);
 
+    let tx = PAD + 8;
     let ty = by + (INPUT_H - FONT_SIZE as i32) / 2;
 
-    if state.selected_all && !state.input.is_empty() {
-        d.draw_rectangle(
-            PAD + 8,
-            ty,
-            measure(fonts, &state.input, FONT_SIZE),
-            FONT_SIZE as i32,
-            SEL_BG,
-        );
+    if let Some((sel_x, sel_w)) = state.field.selection_rect(fonts, FONT_SIZE) {
+        d.draw_rectangle(tx + sel_x, ty, sel_w, FONT_SIZE as i32, SEL_BG);
     }
 
-    let (text, color) = if state.input.is_empty() {
+    let (text, color) = if state.field.is_empty() {
         ("type and press Enter", DIM)
     } else {
-        (state.input.as_str(), FG)
+        (state.field.text.as_str(), FG)
     };
-    txt(d, fonts, text, PAD + 8, ty, FONT_SIZE, color);
+    txt(d, fonts, text, tx, ty, FONT_SIZE, color);
 
-    if !state.selected_all && (d.get_time() * 2.0) as i32 % 2 == 0 {
+    if !state.field.has_selection() && (d.get_time() * 2.0) as i32 % 2 == 0 {
         txt(
             d,
             fonts,
             "|",
-            PAD + 8 + measure(fonts, &state.input, FONT_SIZE) + 1,
+            tx + state.field.cursor_x(fonts, FONT_SIZE) + 1,
             ty,
             FONT_SIZE,
             ACCENT,
@@ -396,10 +344,6 @@ fn txt(d: &mut RaylibDrawHandle, fonts: &Fonts, text: &str, x: i32, y: i32, size
         1.0,
         color,
     );
-}
-
-fn measure(fonts: &Fonts, text: &str, size: f32) -> i32 {
-    fonts.pick(text).measure_text(text, size, 1.0).x as i32
 }
 
 fn write_config(path: &Path, config: &Config) -> std::io::Result<()> {

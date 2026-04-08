@@ -1,6 +1,6 @@
 mod app;
-pub mod clipboard;
 mod setup;
+pub mod textfield;
 
 use std::path::PathBuf;
 

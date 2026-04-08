@@ -3,7 +3,7 @@ use raylib::prelude::*;
 use crate::toml::parser::Config;
 use crate::veuros::{Assignment, TOTAL};
 
-use super::clipboard::{self, ClipboardAction};
+use super::textfield::TextField;
 use super::{Fonts, WIN_W};
 
 const FONT_SIZE: f32 = 20.0;
@@ -45,9 +45,8 @@ enum Screen {
 
 struct State<'a> {
     peers: Vec<&'a str>,
-    buffers: Vec<String>,
+    fields: Vec<TextField>,
     active: usize,
-    selected_all: bool,
     screen: Screen,
 }
 
@@ -55,26 +54,25 @@ impl<'a> State<'a> {
     fn new(peers: Vec<&'a str>) -> Self {
         let n = peers.len();
         Self {
-            peers,
-            buffers: vec![String::new(); n],
+            fields: (0..n).map(|_| TextField::new(|c| c.is_ascii_digit())).collect(),
             active: 0,
-            selected_all: false,
             screen: if n == 0 { Screen::Solo } else { Screen::Assign },
+            peers,
         }
     }
 
     fn remaining(&self) -> i64 {
-        let total: u32 = self.buffers.iter().map(|b| b.parse::<u32>().unwrap_or(0)).sum();
+        let total: u32 = self.fields.iter().map(|f| f.text.parse::<u32>().unwrap_or(0)).sum();
         TOTAL as i64 - total as i64
     }
 
     fn assignments(&self) -> Vec<Assignment> {
         self.peers
             .iter()
-            .zip(&self.buffers)
-            .map(|(&name, buf)| Assignment {
+            .zip(&self.fields)
+            .map(|(&name, f)| Assignment {
                 name: name.to_string(),
-                amount: buf.parse().unwrap_or(0),
+                amount: f.text.parse().unwrap_or(0),
             })
             .collect()
     }
@@ -89,7 +87,6 @@ impl<'a> State<'a> {
 
 pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, fonts: &Fonts, config: &Config) -> Outcome {
     let my_name = config.general.my_name.trim();
-
     let peers: Vec<&str> = config
         .members
         .students
@@ -105,7 +102,6 @@ pub fn run(rl: &mut RaylibHandle, thread: &RaylibThread, fonts: &Fonts, config: 
         if rl.window_should_close() {
             std::process::exit(0);
         }
-
         if let Some(outcome) = handle_input(rl, &mut state) {
             return outcome;
         }
@@ -158,60 +154,21 @@ fn handle_assign(rl: &mut RaylibHandle, state: &mut State) -> Option<Outcome> {
             return Some(Outcome::EditConfig);
         }
         if let Some(i) = (0..state.peers.len()).find(|&i| hit(pos, field_rect(i))) {
-            if state.active != i {
-                state.selected_all = false;
-            }
             state.active = i;
         }
     }
 
     if rl.is_key_pressed(KeyboardKey::KEY_TAB) {
         state.active = (state.active + 1) % state.peers.len();
-        state.selected_all = false;
     }
 
-    handle_digit_input(rl, state);
+    state.fields[state.active].handle_input(rl);
 
     if rl.is_key_pressed(KeyboardKey::KEY_ENTER) && state.remaining() == 0 {
         state.screen = Screen::Confirm;
     }
 
     None
-}
-
-fn handle_digit_input(rl: &mut RaylibHandle, state: &mut State) {
-    let buf = &mut state.buffers[state.active];
-
-    // A digit while select-all is active replaces the whole buffer.
-    while let Some(c) = rl.get_char_pressed() {
-        if c.is_ascii_digit() {
-            if state.selected_all {
-                buf.clear();
-            }
-            buf.push(c);
-            state.selected_all = false;
-        }
-    }
-
-    match clipboard::handle(rl, buf, |c| c.is_ascii_digit()) {
-        ClipboardAction::Replace(s) => {
-            *buf = s;
-            state.selected_all = false;
-        }
-        ClipboardAction::SelectAll => {
-            state.selected_all = true;
-        }
-        ClipboardAction::Noop => {}
-    }
-
-    if rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE) || rl.is_key_pressed_repeat(KeyboardKey::KEY_BACKSPACE) {
-        if state.selected_all {
-            buf.clear();
-        } else {
-            buf.pop();
-        }
-        state.selected_all = false;
-    }
 }
 
 fn draw_solo(d: &mut RaylibDrawHandle, fonts: &Fonts, win_h: i32) {
@@ -278,40 +235,39 @@ fn draw_row(d: &mut RaylibDrawHandle, fonts: &Fonts, state: &State, i: usize, na
     let y = PAD * 3 + i as i32 * ROW_H;
     let is_active = state.active == i;
     let r = field_rect(i);
-    let val = &state.buffers[i];
+    let field = &state.fields[i];
     let tx = r.x as i32 + 8;
     let ty = r.y as i32 + (BOX_H - FONT_SIZE as i32) / 2;
 
     txt(d, fonts, name, PAD, y + (BOX_H - FONT_SIZE as i32) / 2, FONT_SIZE, FG);
-
     d.draw_rectangle_rec(r, if is_active { BOX_ACT } else { BOX_BG });
     d.draw_rectangle_lines_ex(r, 1.5, if is_active { ACCENT } else { DIM });
 
-    // Show the placeholder "0" only when unfocused and empty.
-    let (val_text, val_color) = if val.is_empty() && !is_active {
+    // Show placeholder "0" only when unfocused and empty.
+    let (val_text, val_color) = if field.is_empty() && !is_active {
         ("0", DIM)
     } else {
-        (val.as_str(), FG)
+        (field.text.as_str(), FG)
     };
 
-    // Draw selection highlight behind the text when select-all is active.
-    if is_active && state.selected_all && !val.is_empty() {
-        d.draw_rectangle(tx, ty, measure(fonts, val, FONT_SIZE), FONT_SIZE as i32, SEL_BG);
+    if is_active {
+        if let Some((sel_x, sel_w)) = field.selection_rect(fonts, FONT_SIZE) {
+            d.draw_rectangle(tx + sel_x, ty, sel_w, FONT_SIZE as i32, SEL_BG);
+        }
+        if !field.has_selection() && (d.get_time() * 2.0) as i32 % 2 == 0 {
+            txt(
+                d,
+                fonts,
+                "|",
+                tx + field.cursor_x(fonts, FONT_SIZE),
+                ty,
+                FONT_SIZE,
+                ACCENT,
+            );
+        }
     }
 
     txt(d, fonts, val_text, tx, ty, FONT_SIZE, val_color);
-
-    if is_active && !state.selected_all && (d.get_time() * 2.0) as i32 % 2 == 0 {
-        txt(
-            d,
-            fonts,
-            "|",
-            tx + measure(fonts, val, FONT_SIZE),
-            ty,
-            FONT_SIZE,
-            ACCENT,
-        );
-    }
 }
 
 fn draw_confirm(d: &mut RaylibDrawHandle, fonts: &Fonts, win_h: i32) {
