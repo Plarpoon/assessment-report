@@ -66,16 +66,21 @@ jobs:
         with:
           path: artifacts
 
-      - name: Rename binaries
+      - name: Set executable bit and package Unix binaries
         run: |
-          mv artifacts/peer-assessment-report-generator-x86_64-unknown-linux-gnu/peer-assessment-report-generator   artifacts/peer-assessment-report-generator-linux-x86_64
-          mv artifacts/peer-assessment-report-generator-x86_64-pc-windows-msvc/peer-assessment-report-generator.exe artifacts/peer-assessment-report-generator-windows-x86_64.exe
-          mv artifacts/peer-assessment-report-generator-aarch64-apple-darwin/peer-assessment-report-generator        artifacts/peer-assessment-report-generator-macos-arm64
+          chmod +x artifacts/peer-assessment-report-generator-x86_64-unknown-linux-gnu/peer-assessment-report-generator
+          chmod +x artifacts/peer-assessment-report-generator-aarch64-apple-darwin/peer-assessment-report-generator
 
-      - name: Set executable bit
-        run: |
-          chmod +x artifacts/peer-assessment-report-generator-linux-x86_64
-          chmod +x artifacts/peer-assessment-report-generator-macos-arm64
+          tar -czf artifacts/peer-assessment-report-generator-linux-x86_64.tar.gz \
+            --transform 's|.*|Peer Assessment Report Generator/peer-assessment-report-generator|' \
+            artifacts/peer-assessment-report-generator-x86_64-unknown-linux-gnu/peer-assessment-report-generator
+
+          tar -czf artifacts/peer-assessment-report-generator-macos-arm64.tar.gz \
+            --transform 's|.*|Peer Assessment Report Generator/peer-assessment-report-generator|' \
+            artifacts/peer-assessment-report-generator-aarch64-apple-darwin/peer-assessment-report-generator
+
+          mv artifacts/peer-assessment-report-generator-x86_64-pc-windows-msvc/peer-assessment-report-generator.exe \
+             artifacts/peer-assessment-report-generator-windows-x86_64.exe
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -83,6 +88,6 @@ jobs:
           name: v${{ steps.version.outputs.tag }}
           body: "Commit: ${{ github.sha }}"
           files: |
-            artifacts/peer-assessment-report-generator-linux-x86_64
+            artifacts/peer-assessment-report-generator-linux-x86_64.tar.gz
             artifacts/peer-assessment-report-generator-windows-x86_64.exe
-            artifacts/peer-assessment-report-generator-macos-arm64
+            artifacts/peer-assessment-report-generator-macos-arm64.tar.gz

@@ -8,17 +8,44 @@ A tool for distributing 50 virtual Euros (vEuros) across group members as part o
 
 ## Usage
 
-Run the GUI (default):
+### Linux & macOS
+
+Extract the archive and run:
+
 ```sh
-./assessment-report
+tar -xzf peer-assessment-report-generator-<platform>.tar.gz
+cd "Peer Assessment Report Generator"
+```
+
+Run the GUI (default):
+
+```sh
+./peer-assessment-report-generator
 ```
 
 Run in console mode:
+
 ```sh
-./assessment-report --console
+./peer-assessment-report-generator --console
 ```
 
-On first launch a setup wizard guides you through creating `config.toml` file. This file is placed next to the binary and can be edited at any time via the **Edit config** button in the app, or manually.
+### Windows
+
+Run the GUI:
+
+```sh
+peer-assessment-report-generator.exe
+```
+
+Run in console mode (powershell or CMD):
+
+```sh
+.\peer-assessment-report-generator.exe --console
+```
+
+---
+
+On first launch a setup wizard guides you through creating a `config.toml` file. This file is placed next to the binary and can be edited at any time via the **Edit config** button in the app, or manually.
 
 Once all 50 vEuros are distributed and confirmed, the output file is written to the same directory as the binary with the following format:
 
