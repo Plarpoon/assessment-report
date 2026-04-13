@@ -30,7 +30,7 @@ fn main() {
     let week = Local::now().iso_week().week();
     let group = config.general.group_name.trim().replace(' ', "_");
     let name_slug = my_name.replace(' ', "");
-    let filename = format!("1DV508WEEK{week}{group}By{name_slug}.txt");
+    let filename = format!("1DV508Week{week}Group{group}By{name_slug}.txt");
 
     let content = build_content(my_name, &config.members.students, &assignments);
 
